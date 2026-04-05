@@ -964,7 +964,7 @@ const DEFAULTS=[
   {name:'جلوكوز ملحي 0.9% + 5%',page:42},{name:'ملح 0.9% 500 ملي',page:46},
   {name:'ملح 0.9% 250 ملي',page:72},{name:'ملح غسيل جراحي 1 لتر',page:100},
   {name:'ملح 0.9% 100 ملي',page:105},{name:'ملح ثلاثي 2.7%',page:117},
-  {name:'فولقن',page:120},{name:'رنجر',page:125},{name:'بيدمنت 250 ملي',page:140},
+  {name:'ڤولڤن',page:120},{name:'رنجر',page:125},{name:'بيدمنت 250 ملي',page:140},
   {name:'اسيتات رنجر',page:143},{name:'بيكربونات صوديوم',page:145},
   {name:'مانيتول',page:155},{name:'تادينوميرز',page:163},{name:'سموفكابيفين',page:165},
   {name:'كيدمن',page:185},{name:'اميبارين',page:188},{name:'امينوليبان',page:197}
@@ -972,18 +972,20 @@ const DEFAULTS=[
 
 // ═══════════════════ INIT ═══════════════════
 function init(){
-  load();
-  if(!items.length) seedItems();
-  tick();
-  renderAll();
+  loadLocalSettings(); // بيحمّل الـ URL والإعدادات بس
+  if(gsUrl){
+    loadFromGS();      // يقرأ البيانات من Sheets
+  } else {
+    loadLocal();       // يرجع للـ localStorage
+    if(!items.length) seedItems();
+    tick();
+    renderAll();
+  }
 }
 
-function load(){
+// بيحمّل الـ URL والإعدادات فقط من localStorage
+function loadLocalSettings(){
   try{
-    items=JSON.parse(localStorage.getItem('rx_items')||'[]');
-    movements=JSON.parse(localStorage.getItem('rx_movements')||'[]');
-    staff=JSON.parse(localStorage.getItem('rx_staff')||'[]');
-    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
     settings=JSON.parse(localStorage.getItem('rx_settings')||'{}');
     gsUrl=localStorage.getItem('rx_gs')||'';
     movCounter=parseInt(localStorage.getItem('rx_mc')||'0');
@@ -998,6 +1000,89 @@ function load(){
   }catch(e){console.error(e)}
 }
 
+// بيحمّل كل البيانات من localStorage (fallback)
+function loadLocal(){
+  try{
+    items=JSON.parse(localStorage.getItem('rx_items')||'[]');
+    movements=JSON.parse(localStorage.getItem('rx_movements')||'[]');
+    staff=JSON.parse(localStorage.getItem('rx_staff')||'[]');
+    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+    movCounter=parseInt(localStorage.getItem('rx_mc')||'0');
+  }catch(e){console.error(e)}
+}
+
+// بيقرأ البيانات من Google Sheets
+async function loadFromGS(){
+  // شاشة تحميل
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="gsLoading" style="position:fixed;inset:0;background:rgba(13,17,23,0.9);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#e6edf3">' +
+    '<div style="font-size:32px">☁️</div>' +
+    '<div style="font-size:16px;font-weight:700">جاري تحميل البيانات...</div>' +
+    '<div style="font-size:12px;color:#8b949e">Google Sheets</div></div>');
+  try{
+    const [iData,mData,sData]=await Promise.all([
+      fetchSheet('الأصناف'),
+      fetchSheet('الحركات'),
+      fetchSheet('الموظفين')
+    ]);
+    // تحويل الأصناف
+    if(iData.length>1){
+      items=iData.slice(1).filter(r=>r[0]).map(r=>({
+        id:r[0]||'item_'+Date.now(),
+        name:r[1]||'',page:parseInt(r[2])||0,
+        stock:parseFloat(r[3])||0,unit:r[4]||'زجاجة',
+        minStock:parseFloat(r[5])||50,notes:r[6]||'',
+        createdAt:r[7]||new Date().toISOString()
+      }));
+    } else { items=[]; }
+    // تحويل الحركات
+    if(mData.length>1){
+      movements=mData.slice(1).filter(r=>r[0]).map(r=>({
+        id:r[0]||'mov_'+Date.now(),
+        serial:parseInt(r[1])||0,type:r[2]||'صرف',
+        itemId:r[3]||'',itemName:r[4]||'',
+        qty:parseFloat(r[5])||0,docNo:r[6]||'',
+        party:r[7]||'',staffId:r[8]||'',staffName:r[9]||'',
+        date:r[10]||'',notes:r[11]||'',
+        createdAt:r[12]||new Date().toISOString()
+      }));
+      movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
+    } else { movements=[]; }
+    // تحويل الموظفين
+    if(sData.length>1){
+      staff=sData.slice(1).filter(r=>r[0]).map(r=>({
+        id:r[0]||'s_'+Date.now(),
+        name:r[1]||'',role:r[2]||'صيدلاني',
+        phone:r[3]||'',createdAt:r[4]||new Date().toISOString()
+      }));
+    } else { staff=[]; }
+    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+    if(!items.length) seedItems();
+    document.getElementById('gsLoading').remove();
+    tick();
+    renderAll();
+  }catch(err){
+    console.error('GS load error:',err);
+    document.getElementById('gsLoading').remove();
+    // fallback للـ local
+    loadLocal();
+    if(!items.length) seedItems();
+    tick();
+    renderAll();
+  }
+}
+
+async function fetchSheet(sheetName){
+  const resp=await fetch(gsUrl+'?sheet='+encodeURIComponent(sheetName));
+  const text=await resp.text();
+  try{ return JSON.parse(text); }catch(e){ return []; }
+}
+
+function load(){
+  loadLocalSettings();
+  loadLocal();
+}
+
 function save(){
   localStorage.setItem('rx_items',JSON.stringify(items));
   localStorage.setItem('rx_movements',JSON.stringify(movements));
@@ -1005,6 +1090,8 @@ function save(){
   localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
   localStorage.setItem('rx_settings',JSON.stringify(settings));
   localStorage.setItem('rx_mc',movCounter);
+  // كمان يكتب على Sheets لو مربوط
+  if(gsUrl) syncAll();
 }
 
 function seedItems(){
@@ -1609,12 +1696,23 @@ async function syncAll(){
   document.getElementById('gsDot').className='gs-dot sync';
   document.getElementById('gsMsg').textContent='⏳ جاري المزامنة...';
   try{
-    const iRows=[['id','name','page','stock','unit','minStock','notes'],...items.map(i=>[i.id,i.name,i.page,i.stock,i.unit,i.minStock,i.notes||''])];
-    const mRows=[['serial','type','itemName','qty','docNo','party','staffName','date','notes'],...movements.map(m=>[m.serial,m.type,m.itemName,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||''])];
-    const sRows=[['id','name','role','phone'],...staff.map(s=>[s.id,s.name,s.role,s.phone||''])];
+    // الأعمدة محدّثة تتطابق مع loadFromGS
+    const iRows=[
+      ['id','name','page','stock','unit','minStock','notes','createdAt'],
+      ...items.map(i=>[i.id,i.name,i.page,i.stock,i.unit||'زجاجة',i.minStock||50,i.notes||'',i.createdAt||''])
+    ];
+    const mRows=[
+      ['id','serial','type','itemId','itemName','qty','docNo','party','staffId','staffName','date','notes','createdAt'],
+      ...movements.map(m=>[m.id,m.serial,m.type,m.itemId,m.itemName,m.qty,m.docNo,m.party,m.staffId||'',m.staffName,m.date,m.notes||'',m.createdAt||''])
+    ];
+    const sRows=[
+      ['id','name','role','phone','createdAt'],
+      ...staff.map(s=>[s.id,s.name,s.role,s.phone||'',s.createdAt||''])
+    ];
     await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الأصناف',action:'write',rows:iRows})});
     await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الحركات',action:'write',rows:mRows})});
     await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الموظفين',action:'write',rows:sRows})});
+    localStorage.setItem('rx_mc',movCounter);
     document.getElementById('gsDot').className='gs-dot on';
     document.getElementById('gsLabel').textContent='مربوط بـ Google Sheets';
     document.getElementById('gsMsg').textContent=`✅ تمت المزامنة — ${new Date().toLocaleTimeString('ar-EG')}`;
