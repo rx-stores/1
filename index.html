@@ -964,7 +964,7 @@ const DEFAULTS=[
   {name:'جلوكوز ملحي 0.9% + 5%',page:42},{name:'ملح 0.9% 500 ملي',page:46},
   {name:'ملح 0.9% 250 ملي',page:72},{name:'ملح غسيل جراحي 1 لتر',page:100},
   {name:'ملح 0.9% 100 ملي',page:105},{name:'ملح ثلاثي 2.7%',page:117},
-  {name:'ڤولڤن',page:120},{name:'رنجر',page:125},{name:'بيدمنت 250 ملي',page:140},
+  {name:'فولقن',page:120},{name:'رنجر',page:125},{name:'بيدمنت 250 ملي',page:140},
   {name:'اسيتات رنجر',page:143},{name:'بيكربونات صوديوم',page:145},
   {name:'مانيتول',page:155},{name:'تادينوميرز',page:163},{name:'سموفكابيفين',page:165},
   {name:'كيدمن',page:185},{name:'اميبارين',page:188},{name:'امينوليبان',page:197}
@@ -972,126 +972,91 @@ const DEFAULTS=[
 
 // ═══════════════════ INIT ═══════════════════
 function init(){
-  loadLocalSettings(); // بيحمّل الـ URL والإعدادات بس
-  if(gsUrl){
-    loadFromGS();      // يقرأ البيانات من Sheets
-  } else {
-    loadLocal();       // يرجع للـ localStorage
-    if(!items.length) seedItems();
-    tick();
-    renderAll();
-  }
+  showLoader('جاري تحميل البيانات...','☁️');
+  loadFromSupabase();
 }
 
-// بيحمّل الـ URL والإعدادات فقط من localStorage
-function loadLocalSettings(){
-  try{
-    settings=JSON.parse(localStorage.getItem('rx_settings')||'{}');
-    gsUrl=localStorage.getItem('rx_gs')||'';
-    movCounter=parseInt(localStorage.getItem('rx_mc')||'0');
-    if(gsUrl){
-      document.getElementById('gsUrlInput').value=gsUrl;
-      document.getElementById('gsDot').classList.add('on');
-      document.getElementById('gsLabel').textContent='مربوط بـ Google Sheets';
-    }
-    if(settings.hospital) document.getElementById('sHosp').value=settings.hospital;
-    if(settings.dept) document.getElementById('sDept').value=settings.dept;
-    if(settings.minStock) document.getElementById('sMin').value=settings.minStock;
-  }catch(e){console.error(e)}
-}
-
-// بيحمّل كل البيانات من localStorage (fallback)
-function loadLocal(){
-  try{
-    items=JSON.parse(localStorage.getItem('rx_items')||'[]');
-    movements=JSON.parse(localStorage.getItem('rx_movements')||'[]');
-    staff=JSON.parse(localStorage.getItem('rx_staff')||'[]');
-    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
-    movCounter=parseInt(localStorage.getItem('rx_mc')||'0');
-  }catch(e){console.error(e)}
-}
-
-// بيقرأ البيانات من Google Sheets
-async function loadFromGS(){
-  // شاشة تحميل
+function showLoader(msg,icon){
+  if(document.getElementById('sbLoader'))return;
   document.body.insertAdjacentHTML('beforeend',
-    '<div id="gsLoading" style="position:fixed;inset:0;background:rgba(13,17,23,0.9);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#e6edf3">' +
-    '<div style="font-size:32px">☁️</div>' +
-    '<div style="font-size:16px;font-weight:700">جاري تحميل البيانات...</div>' +
-    '<div style="font-size:12px;color:#8b949e">Google Sheets</div></div>');
+    `<div id="sbLoader" style="position:fixed;inset:0;background:rgba(13,17,23,0.93);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#e6edf3">
+      <div style="font-size:40px">${icon}</div>
+      <div style="font-size:17px;font-weight:700">${msg}</div>
+      <div style="font-size:12px;color:#8b949e">Supabase Database</div>
+    </div>`);
+}
+function hideLoader(){const el=document.getElementById('sbLoader');if(el)el.remove();}
+
+async function loadFromSupabase(){
   try{
-    const [iData,mData,sData]=await Promise.all([
-      fetchSheet('الأصناف'),
-      fetchSheet('الحركات'),
-      fetchSheet('الموظفين')
+    const [iRows,mRows,sRows]=await Promise.all([
+      sbGet('items'),sbGet('movements'),sbGet('staff')
     ]);
-    // تحويل الأصناف
-    if(iData.length>1){
-      items=iData.slice(1).filter(r=>r[0]).map(r=>({
-        id:r[0]||'item_'+Date.now(),
-        name:r[1]||'',page:parseInt(r[2])||0,
-        stock:parseFloat(r[3])||0,unit:r[4]||'زجاجة',
-        minStock:parseFloat(r[5])||50,notes:r[6]||'',
-        createdAt:r[7]||new Date().toISOString()
-      }));
-    } else { items=[]; }
-    // تحويل الحركات
-    if(mData.length>1){
-      movements=mData.slice(1).filter(r=>r[0]).map(r=>({
-        id:r[0]||'mov_'+Date.now(),
-        serial:parseInt(r[1])||0,type:r[2]||'صرف',
-        itemId:r[3]||'',itemName:r[4]||'',
-        qty:parseFloat(r[5])||0,docNo:r[6]||'',
-        party:r[7]||'',staffId:r[8]||'',staffName:r[9]||'',
-        date:r[10]||'',notes:r[11]||'',
-        createdAt:r[12]||new Date().toISOString()
-      }));
-      movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
-    } else { movements=[]; }
-    // تحويل الموظفين
-    if(sData.length>1){
-      staff=sData.slice(1).filter(r=>r[0]).map(r=>({
-        id:r[0]||'s_'+Date.now(),
-        name:r[1]||'',role:r[2]||'صيدلاني',
-        phone:r[3]||'',createdAt:r[4]||new Date().toISOString()
-      }));
-    } else { staff=[]; }
+    items=iRows.map(r=>({
+      id:r.id,name:r.name,page:r.page,
+      stock:parseFloat(r.stock)||0,unit:r.unit||'زجاجة',
+      minStock:parseFloat(r.min_stock)||50,notes:r.notes||'',
+      createdAt:r.created_at||new Date().toISOString()
+    }));
+    movements=mRows.map(r=>({
+      id:r.id,serial:parseInt(r.serial)||0,
+      type:r.type,itemId:r.item_id,itemName:r.item_name,
+      qty:parseFloat(r.qty)||0,docNo:r.doc_no,
+      party:r.party,staffId:r.staff_id||'',staffName:r.staff_name,
+      date:r.date,notes:r.notes||'',
+      createdAt:r.created_at||new Date().toISOString()
+    }));
+    staff=sRows.map(r=>({
+      id:r.id,name:r.name,role:r.role||'صيدلاني',
+      phone:r.phone||'',createdAt:r.created_at||new Date().toISOString()
+    }));
+    movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
     inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
-    if(!items.length) seedItems();
-    document.getElementById('gsLoading').remove();
-    tick();
-    renderAll();
+    if(!items.length) await seedItems();
+    hideLoader();tick();renderAll();
   }catch(err){
-    console.error('GS load error:',err);
-    document.getElementById('gsLoading').remove();
-    // fallback للـ local
-    loadLocal();
-    if(!items.length) seedItems();
-    tick();
-    renderAll();
+    console.error('Supabase load error:',err);
+    hideLoader();
+    alert('⚠️ تعذّر الاتصال بقاعدة البيانات.\nتحقق من الاتصال بالإنترنت.');
+    tick();renderAll();
   }
 }
 
-async function fetchSheet(sheetName){
-  const resp=await fetch(gsUrl+'?sheet='+encodeURIComponent(sheetName));
-  const text=await resp.text();
-  try{ return JSON.parse(text); }catch(e){ return []; }
-}
-
-function load(){
-  loadLocalSettings();
-  loadLocal();
-}
+function load(){}
+function loadLocal(){}
+function loadLocalSettings(){}
 
 function save(){
-  localStorage.setItem('rx_items',JSON.stringify(items));
-  localStorage.setItem('rx_movements',JSON.stringify(movements));
-  localStorage.setItem('rx_staff',JSON.stringify(staff));
   localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
-  localStorage.setItem('rx_settings',JSON.stringify(settings));
   localStorage.setItem('rx_mc',movCounter);
-  // كمان يكتب على Sheets لو مربوط
-  if(gsUrl) syncAll();
+}
+
+async function sbSaveItems(){
+  await sbUpsert('items',items.map(i=>({
+    id:i.id,name:i.name,page:i.page,
+    stock:i.stock,unit:i.unit||'زجاجة',
+    min_stock:i.minStock||50,notes:i.notes||''
+  })));
+}
+
+async function sbSaveMovement(mov){
+  await sbUpsert('movements',[{
+    id:mov.id,serial:mov.serial,type:mov.type,
+    item_id:mov.itemId,item_name:mov.itemName,
+    qty:mov.qty,doc_no:mov.docNo,
+    party:mov.party,staff_id:mov.staffId||'',
+    staff_name:mov.staffName,date:mov.date,notes:mov.notes||''
+  }]);
+}
+
+async function sbSaveStaff(){
+  await sbUpsert('staff',staff.map(s=>({
+    id:s.id,name:s.name,role:s.role||'صيدلاني',phone:s.phone||''
+  })));
+}
+
+async function sbDeleteRow(table,id){
+  await sbDelete(table,id);
 }
 
 function seedItems(){
@@ -1291,10 +1256,14 @@ async function saveMovement(){
     qty,docNo,party,staffId,staffName:staffMem.name,date,notes,createdAt:new Date().toISOString()};
   movements.push(mov);
   if(type==='صرف') item.stock-=qty; else item.stock+=qty;
-  save();renderAll();
+  save();
+  showLoader('جاري الحفظ...','💾');
+  await sbSaveMovement(mov);
+  await sbSaveItems();
+  hideLoader();
+  renderAll();
   alertEl.innerHTML=`<div class="alert alert-green">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
   clearMovForm();
-  if(gsUrl) pushMovToGS(mov);
 }
 
 // ═══════════════════ INVENTORY / JARD ═══════════════════
@@ -1580,17 +1549,25 @@ function saveStaff(){
   if(!name){alert('يرجى إدخال الاسم');return;}
   staff.push({id:'s_'+Date.now(),name,role:document.getElementById('nsRole').value.trim(),
     phone:document.getElementById('nsPhone').value.trim(),createdAt:new Date().toISOString()});
-  save();renderStaff();fillSelects();closeModal('staffModal');
+  save();
+  showLoader('جاري الحفظ...','💾');
+  await sbSaveStaff();
+  hideLoader();
+  renderStaff();fillSelects();closeModal('staffModal');
   ['nsName','nsPhone'].forEach(id=>document.getElementById(id).value='');
 }
 
 function delStaff(id){
   if(!confirm('حذف الموظف؟'))return;
-  staff=staff.filter(s=>s.id!==id);save();renderStaff();fillSelects();
+  staff=staff.filter(s=>s.id!==id);save();
+  showLoader('جاري الحذف...','🗑');
+  await sbDeleteRow('staff',id);
+  hideLoader();
+  renderStaff();fillSelects();
 }
 
 // ═══════════════════ ITEMS CRUD ═══════════════════
-function saveNewItem(){
+async function saveNewItem(){
   const name=document.getElementById('niName').value.trim();
   const page=parseInt(document.getElementById('niPage').value);
   if(!name||!page){alert('يرجى إدخال الاسم ورقم الصفحة');return;}
@@ -1600,7 +1577,11 @@ function saveNewItem(){
     unit:document.getElementById('niUnit').value,
     notes:document.getElementById('niNotes').value.trim(),
     createdAt:new Date().toISOString()});
-  save();renderAll();closeModal('addItemModal');
+  save();
+  showLoader('جاري الحفظ...','💾');
+  await sbSaveItems();
+  hideLoader();
+  renderAll();closeModal('addItemModal');
   ['niName','niPage','niNotes'].forEach(id=>document.getElementById(id).value='');
 }
 
@@ -1625,7 +1606,11 @@ function updateItem(){
   item.minStock=parseInt(document.getElementById('eiMin').value)||50;
   item.unit=document.getElementById('eiUnit').value;
   item.notes=document.getElementById('eiNotes').value.trim();
-  save();renderAll();closeModal('editItemModal');
+  save();
+  showLoader('جاري الحفظ...','💾');
+  await sbSaveItems();
+  hideLoader();
+  renderAll();closeModal('editItemModal');
 }
 
 // ═══════════════════ ITEM MOVEMENTS VIEW ═══════════════════
@@ -1692,41 +1677,10 @@ function connectGS(){
 }
 
 async function syncAll(){
-  if(!gsUrl){alert('يرجى الربط أولاً');return;}
-  document.getElementById('gsDot').className='gs-dot sync';
-  document.getElementById('gsMsg').textContent='⏳ جاري المزامنة...';
-  try{
-    // الأعمدة محدّثة تتطابق مع loadFromGS
-    const iRows=[
-      ['id','name','page','stock','unit','minStock','notes','createdAt'],
-      ...items.map(i=>[i.id,i.name,i.page,i.stock,i.unit||'زجاجة',i.minStock||50,i.notes||'',i.createdAt||''])
-    ];
-    const mRows=[
-      ['id','serial','type','itemId','itemName','qty','docNo','party','staffId','staffName','date','notes','createdAt'],
-      ...movements.map(m=>[m.id,m.serial,m.type,m.itemId,m.itemName,m.qty,m.docNo,m.party,m.staffId||'',m.staffName,m.date,m.notes||'',m.createdAt||''])
-    ];
-    const sRows=[
-      ['id','name','role','phone','createdAt'],
-      ...staff.map(s=>[s.id,s.name,s.role,s.phone||'',s.createdAt||''])
-    ];
-    await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الأصناف',action:'write',rows:iRows})});
-    await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الحركات',action:'write',rows:mRows})});
-    await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الموظفين',action:'write',rows:sRows})});
-    localStorage.setItem('rx_mc',movCounter);
-    document.getElementById('gsDot').className='gs-dot on';
-    document.getElementById('gsLabel').textContent='مربوط بـ Google Sheets';
-    document.getElementById('gsMsg').textContent=`✅ تمت المزامنة — ${new Date().toLocaleTimeString('ar-EG')}`;
-  }catch(e){
-    document.getElementById('gsDot').className='gs-dot';
-    document.getElementById('gsMsg').textContent='❌ فشل الاتصال — تحقق من الرابط';
-  }
+  // غير مستخدم — Supabase يتزامن تلقائياً
 }
 
-async function pushMovToGS(mov){
-  if(!gsUrl)return;
-  try{await fetch(gsUrl,{method:'POST',body:JSON.stringify({sheet:'الحركات',action:'append',row:[mov.serial,mov.type,mov.itemName,mov.qty,mov.docNo,mov.party,mov.staffName,mov.date,mov.notes||'']})});}
-  catch(e){console.log('GS push err',e);}
-}
+// pushMovToGS removed — using Supabase
 
 // ═══════════════════ SETTINGS ═══════════════════
 function saveSettings(){
@@ -1968,9 +1922,15 @@ function deleteItem(id){
     ? 'تحذير: يوجد '+movements.filter(m=>m.itemId===id).length+' حركة مرتبطة بـ "'+item.name+'"\nهل تريد حذف الصنف وكل حركاته؟'
     : 'هل تريد حذف الصنف "'+item.name+'"؟';
   if(!confirm(msg))return;
+  const delMovIds=movements.filter(m=>m.itemId===id).map(m=>m.id);
   movements=movements.filter(m=>m.itemId!==id);
   items=items.filter(i=>i.id!==id);
-  save();renderAll();
+  save();
+  showLoader('جاري الحذف...','🗑');
+  await Promise.all(delMovIds.map(mid=>sbDeleteRow('movements',mid)));
+  await sbDeleteRow('items',id);
+  hideLoader();
+  renderAll();
 }
 
 function deleteItemFromModal(){
@@ -2045,7 +2005,12 @@ function saveEditMov(){
   mov.staffName=staffMem?staffMem.name:mov.staffName;
   mov.date=newDate;
   mov.notes=newNotes;
-  save();renderAll();
+  save();
+  showLoader('جاري الحفظ...','💾');
+  await sbSaveMovement(mov);
+  await sbSaveItems();
+  hideLoader();
+  renderAll();
   closeModal('editMovModal');
   alert('✅ تم تعديل الحركة بنجاح');
 }
@@ -2067,7 +2032,12 @@ function deleteMov(movId){
     else item.stock-=mov.qty;
   }
   movements=movements.filter(m=>m.id!==movId);
-  save();renderAll();
+  save();
+  showLoader('جاري الحذف...','🗑');
+  await sbDeleteRow('movements',movId);
+  await sbSaveItems();
+  hideLoader();
+  renderAll();
 }
 
 // ── AUTH LOGIC ──
@@ -2102,7 +2072,7 @@ function guestLogin(){
 
 function closeAuth(){
   document.getElementById('authOverlay').style.display='none';
-  // أضف بادج المستخدم في التوبار
+  // بادج المستخدم
   var topbar = document.querySelector('.topbar');
   var pill = document.createElement('div');
   pill.className = 'user-pill';
@@ -2115,14 +2085,54 @@ function closeAuth(){
   document.getElementById('fMovDate').value=new Date().toISOString().split('T')[0];
   // قيود الزائر
   if(RX_ROLE==='guest'){
-    setTimeout(function(){
-      // إخفاء عناصر الإضافة
-      document.querySelectorAll('.btn-teal').forEach(function(b){
-        if(b.onclick && (b.getAttribute('onclick')||'').match(/save|Save|openModal/))
-          b.style.display='none';
-      });
-    },500);
+    setTimeout(applyGuestMode, 1500);
   }
+}
+
+function applyGuestMode(){
+  // إخفاء تاب الإعدادات
+  document.querySelectorAll('.nav-item').forEach(function(el){
+    if(el.getAttribute('onclick') && el.getAttribute('onclick').includes('settings'))
+      el.style.display='none';
+  });
+  // إخفاء تاب "حركة جديدة" و"الموظفين"
+  document.querySelectorAll('.nav-item').forEach(function(el){
+    var oc = el.getAttribute('onclick')||'';
+    if(oc.includes('add-movement') || oc.includes("'staff'"))
+      el.style.display='none';
+  });
+  // تعطيل كل أزرار الكتابة والحذف والتعديل
+  var writeSelectors = [
+    'button[onclick*="saveMovement"]',
+    'button[onclick*="saveNewItem"]',
+    'button[onclick*="updateItem"]',
+    'button[onclick*="saveStaff"]',
+    'button[onclick*="deleteItem"]',
+    'button[onclick*="deleteMov"]',
+    'button[onclick*="deleteItemFromModal"]',
+    'button[onclick*="confirmDeleteMov"]',
+    'button[onclick*="saveEditMov"]',
+    'button[onclick*="openEditMov"]',
+    'button[onclick*="openEditItem"]',
+    'button[onclick*="quick"]',
+    'button[onclick*="openModal(\'addItemModal"]',
+    'button[onclick*="openModal(\'staffModal"]',
+    'button[onclick*="startInventory"]',
+    'button[onclick*="saveInventory"]',
+    'button[onclick*="delStaff"]',
+    'button[onclick*="nukeData"]',
+    'button[onclick*="saveSettings"]'
+  ];
+  writeSelectors.forEach(function(sel){
+    try{
+      document.querySelectorAll(sel).forEach(function(b){
+        b.disabled=true;
+        b.style.opacity='0.3';
+        b.style.cursor='not-allowed';
+        b.title='للمدير فقط';
+      });
+    }catch(e){}
+  });
 }
 
 function doLogout(){
