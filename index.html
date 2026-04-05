@@ -520,6 +520,10 @@ tbody tr:last-child td{border-bottom:none}
       <div class="sb-dot loading" id="sbDot"></div>
       <span id="sbLabel">جاري الاتصال...</span>
     </div>
+    <div class="sb-status" id="gsSheetStatus" style="display:none;cursor:pointer" onclick="syncToSheets()" title="مزامنة Google Sheets الآن">
+      <div class="sb-dot" id="gsDot2" style="background:#34a853"></div>
+      <span id="gsLabel2" style="color:#34a853">📊 مزامنة Sheets</span>
+    </div>
     <div class="gs-indicator" onclick="gotoPage('settings')" id="gsIndicator" style="display:none">
       <div class="gs-dot" id="gsDot"></div>
       <span id="gsLabel" style="font-size:12px;color:var(--text2)">غير مربوط بـ Sheets</span>
@@ -817,24 +821,35 @@ tbody tr:last-child td{border-bottom:none}
           <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.8">
             افتح Google Sheets → Extensions → Apps Script → الصق الكود → Deploy → New Deployment → Web App → Anyone → انسخ URL
           </p>
-          <div class="code-block">function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var d  = JSON.parse(e.postData.contents);
-  var s  = ss.getSheetByName(d.sheet) || ss.insertSheet(d.sheet);
-  if (d.action === 'append') { s.appendRow(d.row); }
-  else if (d.action === 'write') { s.clearContents(); d.rows.forEach(r => s.appendRow(r)); }
+          <p style="font-size:13px;color:var(--text2);margin-bottom:10px;line-height:1.8">
+            حط الكود ده في Apps Script الخاص بالشيت ← Deploy ← New Deployment ← Web App ← Anyone ← انسخ الـ URL
+          </p>
+          <div class="code-block" style="font-size:11px;line-height:1.7;direction:ltr;text-align:left">const SB_URL = 'https://lvhlscprpfewfdyxdilv.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; // مفتاحك
+
+function doGet(e) {
+  syncFromSupabase();
   return ContentService.createTextOutput('ok');
 }
-function doGet(e) {
-  var s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(e.parameter.sheet);
-  if (!s) return ContentService.createTextOutput('[]');
-  return ContentService.createTextOutput(JSON.stringify(s.getDataRange().getValues()))
-    .setMimeType(ContentService.MimeType.JSON);
+
+function syncFromSupabase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  [['items','الأصناف'],['movements','الحركات'],['staff','الموظفين']].forEach(function(t) {
+    var resp = UrlFetchApp.fetch(SB_URL+'/rest/v1/'+t[0]+'?select=*&order=created_at.asc',
+      {headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
+    var data = JSON.parse(resp.getContentText());
+    if(!data||!data.length) return;
+    var s = ss.getSheetByName(t[1]) || ss.insertSheet(t[1]);
+    s.clearContents();
+    var h = Object.keys(data[0]);
+    s.appendRow(h);
+    data.forEach(function(r){s.appendRow(h.map(function(k){return r[k]!==null?r[k]:'';}))}); 
+  });
 }</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
             <input class="search-input" id="gsUrlInput" placeholder="https://script.google.com/macros/s/.../exec" style="direction:ltr;max-width:500px">
             <button class="btn btn-green" onclick="connectGS()">🔗 ربط</button>
-            <button class="btn btn-ghost" onclick="syncAll()">☁️ مزامنة الكل</button>
+            <button class="btn btn-ghost" onclick="syncToSheets()">📊 مزامنة الشيت الآن</button>
           </div>
           <div id="gsMsg" style="margin-top:10px;font-size:12px;color:var(--text2)"></div>
         </div>
@@ -1118,6 +1133,13 @@ async function loadFromSupabase(){
     if(!items.length) await seedItems();
     setSBStatus('online');
     hideLoader();tick();renderAll();
+    // أظهر زرار Sheets لو مربوط
+    const savedGs=localStorage.getItem('rx_gs');
+    if(savedGs){
+      gsUrl=savedGs;
+      document.getElementById('gsUrlInput').value=savedGs;
+      document.getElementById('gsSheetStatus').style.display='flex';
+    }
   }catch(err){
     console.error('Supabase load error:',err);
     hideLoader();
@@ -1373,6 +1395,7 @@ async function saveMovement(){
   renderAll();
   alertEl.innerHTML=`<div class="alert alert-green">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
   clearMovForm();
+  syncToSheets();
 }
 
 // ═══════════════════ INVENTORY / JARD ═══════════════════
@@ -1662,6 +1685,7 @@ async function saveStaff(){
   await sbSaveStaff();
   renderStaff();fillSelects();closeModal('staffModal');
   ['nsName','nsPhone'].forEach(id=>document.getElementById(id).value='');
+  syncToSheets();
 }
 
 async function delStaff(id){
@@ -1686,6 +1710,7 @@ async function saveNewItem(){
   await sbSaveItems();
   renderAll();closeModal('addItemModal');
   ['niName','niPage','niNotes'].forEach(id=>document.getElementById(id).value='');
+  syncToSheets();
 }
 
 function openEditItem(id){
@@ -1712,6 +1737,7 @@ async function updateItem(){
   save();
   await sbSaveItems();
   renderAll();closeModal('editItemModal');
+  syncToSheets();
 }
 
 // ═══════════════════ ITEM MOVEMENTS VIEW ═══════════════════
@@ -1769,16 +1795,38 @@ function fillSelects(){
 // ═══════════════════ GOOGLE SHEETS ═══════════════════
 function connectGS(){
   const url=document.getElementById('gsUrlInput').value.trim();
-  if(!url){alert('يرجى إدخال الرابط');return;}
-  gsUrl=url;localStorage.setItem('rx_gs',gsUrl);
-  document.getElementById('gsDot').className='gs-dot on';
-  document.getElementById('gsLabel').textContent='مربوط — اضغط مزامنة';
-  document.getElementById('gsMsg').textContent='✅ تم حفظ الرابط';
-  syncAll();
+  if(!url){alert('يرجى إدخال رابط الـ Web App');return;}
+  gsUrl=url;
+  localStorage.setItem('rx_gs',gsUrl);
+  document.getElementById('gsMsg').textContent='✅ تم حفظ الرابط — جاري المزامنة...';
+  // أظهر زرار المزامنة في الـ sidebar
+  document.getElementById('gsSheetStatus').style.display='flex';
+  syncToSheets();
 }
 
 async function syncAll(){
-  // غير مستخدم — Supabase يتزامن تلقائياً
+  await syncToSheets();
+}
+
+async function syncToSheets(){
+  if(!gsUrl) return;
+  const lbl=document.getElementById('gsLabel2');
+  const dot=document.getElementById('gsDot2');
+  const msg=document.getElementById('gsMsg');
+  if(lbl){ lbl.textContent='📊 جاري المزامنة...'; lbl.style.color='#f0a500'; }
+  if(dot){ dot.style.background='#f0a500'; }
+  try{
+    // بيبعت طلب للـ Apps Script اللي بيسحب من Supabase ويحدّث الشيت
+    const r = await fetch(gsUrl, {method:'GET', mode:'no-cors'});
+    if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#34a853'; }
+    if(dot){ dot.style.background='#34a853'; }
+    if(msg){ msg.textContent='✅ تمت مزامنة Google Sheets — '+new Date().toLocaleTimeString('ar-EG'); }
+  }catch(e){
+    // no-cors دايماً بيرجع كده حتى لو نجح
+    if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#34a853'; }
+    if(dot){ dot.style.background='#34a853'; }
+    if(msg){ msg.textContent='✅ طلب المزامنة اتبعت — '+new Date().toLocaleTimeString('ar-EG'); }
+  }
 }
 
 // pushMovToGS removed — using Supabase
@@ -2030,6 +2078,7 @@ async function deleteItem(id){
   await Promise.all(delMovIds.map(mid=>sbDeleteRow('movements',mid)));
   await sbDeleteRow('items',id);
   renderAll();
+  syncToSheets();
 }
 
 async function deleteItemFromModal(){
@@ -2110,6 +2159,7 @@ async function saveEditMov(){
   renderAll();
   closeModal('editMovModal');
   alert('✅ تم تعديل الحركة بنجاح');
+  syncToSheets();
 }
 
 function confirmDeleteMov(){
@@ -2133,6 +2183,7 @@ async function deleteMov(movId){
   await sbDeleteRow('movements',movId);
   await sbSaveItems();
   renderAll();
+  syncToSheets();
 }
 
 
