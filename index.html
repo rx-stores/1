@@ -1162,27 +1162,37 @@ async function sbDeleteRow(table,id){
 }
 
 async function sbSaveInventory(){
-  // حفظ inventory_sessions في Supabase كـ JSON
+  // حفظ محلي دايماً
+  localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
+  // حفظ على Supabase
   try{
     await sbUpsert('app_settings',[{
       key:'inventory_sessions',
       value:JSON.stringify(inventorySessions)
     }]);
   }catch(e){
-    localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
+    console.error('sbSaveInventory error:',e);
   }
 }
 
 async function sbLoadInventory(){
   try{
     const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.inventory_sessions',{headers:sbHeaders()});
-    if(!r.ok) return;
+    if(!r.ok){
+      inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+      return;
+    }
     const data=await r.json();
     if(data.length && data[0].value){
       inventorySessions=JSON.parse(data[0].value);
+      localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
+    } else {
+      // لو Supabase فاضي جرّب الـ local وارفعه
+      inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+      if(inventorySessions.length) await sbSaveInventory();
     }
   }catch(e){
-    await sbLoadInventory(); // تحميل الجرد من Supabase
+    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
   }
 }
 
@@ -1260,7 +1270,8 @@ async function loadFromSupabase(){
       phone:r.phone||'',createdAt:r.created_at||new Date().toISOString()
     }));
     movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
-    inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+    // تحميل الجرد من Supabase
+    await sbLoadInventory();
     if(!items.length) await seedItems();
     setSBStatus('online');
     hideLoader();tick();renderAll();
@@ -2135,7 +2146,7 @@ async function deleteItem(id){
   await Promise.all(delMovIds.map(mid=>sbDeleteRow('movements',mid)));
   await sbDeleteRow('items',id);
   renderAll();
-  await syncToSheets();
+  setTimeout(function(){ syncToSheets(); }, 2000);
 }
 
 async function deleteItemFromModal(){
@@ -2240,7 +2251,8 @@ async function deleteMov(movId){
   await sbDeleteRow('movements',movId);
   await sbSaveItems();
   renderAll();
-  await syncToSheets();
+  // انتظر ثانيتين عشان Supabase يخلّص قبل مزامنة الشيت
+  setTimeout(function(){ syncToSheets(); }, 2000);
 }
 
 
