@@ -886,6 +886,9 @@ function syncFromSupabase() {
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
             <button class="btn btn-teal" onclick="saveSettings()">💾 حفظ</button>
             <button class="btn btn-green btn-sm" onclick="exportAllXLS()">📊 تصدير الكل Excel</button>
+            <button class="btn btn-blue btn-sm" onclick="exportBackup()">💾 تصدير نسخة احتياطية</button>
+            <button class="btn btn-amber btn-sm" onclick="document.getElementById('importFile').click()">📂 استيراد نسخة احتياطية</button>
+            <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBackup(event)">
             <button class="btn btn-red btn-sm" onclick="nukeData()">🗑️ مسح كل البيانات</button>
           </div>
         </div>
@@ -1593,7 +1596,6 @@ async function saveInventorySession(){
   inventorySessions.unshift(session);
   save();
   await sbSaveInventory();
-  await syncToSheets();
   renderInventoryHistory();
   renderJardSummary();
   updateDeficitBadge();
@@ -1604,6 +1606,7 @@ async function saveInventorySession(){
   document.getElementById('saveJardBtn').style.display='none';
   activeJardSession=null;
   alert('✅ تم حفظ جلسة الجرد بنجاح');
+  await syncToSheets();
 }
 
 /* ── DEFICIT ANALYSIS ── */
@@ -1727,7 +1730,6 @@ async function deleteInventorySession(sessionId){
   await sbSaveInventory();
   renderInventoryHistory();
   updateDeficitBadge();
-  await sleep(2500);
   await syncToSheets();
 }
 
@@ -1978,38 +1980,14 @@ async function syncToSheets(){
   const msg=document.getElementById('gsMsg');
   if(lbl){ lbl.textContent='📊 جاري المزامنة...'; lbl.style.color='#f0a500'; }
   if(dot){ dot.style.background='#f0a500'; }
-
-  // بنبعت البيانات الحالية مباشرة لـ Apps Script عشان يكتبها في الشيت
-  // كده مش محتاجين Apps Script يسحب من Supabase وبيضمن دايماً البيانات الصح
   try{
-    const payload = {
-      items: items.map(i=>({
-        id:i.id, name:i.name, page:i.page, stock:i.stock,
-        unit:i.unit||'زجاجة', min_stock:i.minStock||50, notes:i.notes||''
-      })),
-      movements: movements.map(m=>({
-        id:m.id, serial:m.serial, type:m.type,
-        item_name:m.itemName, qty:m.qty, doc_no:m.docNo,
-        party:m.party, staff_name:m.staffName, date:m.date, notes:m.notes||''
-      })),
-      staff: staff.map(s=>({
-        id:s.id, name:s.name, role:s.role||'صيدلاني', phone:s.phone||''
-      })),
-      inventory: inventorySessions
-    };
-
-    await fetch(gsUrl, {
-      method:'POST',
-      mode:'no-cors',
-      cache:'no-store',
-      headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify(payload)
-    });
+    // GET بسيط — Apps Script يسحب من Supabase
+    const url = gsUrl + (gsUrl.includes('?')?'&':'?') + 't=' + Date.now();
+    await fetch(url, {method:'GET', mode:'no-cors', cache:'no-store'});
   }catch(e){}
-
   if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#34a853'; }
   if(dot){ dot.style.background='#34a853'; }
-  if(msg){ msg.textContent='✅ تمت مزامنة Google Sheets — '+new Date().toLocaleTimeString('ar-EG'); }
+  if(msg){ msg.textContent='✅ '+new Date().toLocaleTimeString('ar-EG'); }
 }
 
 // pushMovToGS removed — using Supabase
@@ -2019,6 +1997,52 @@ function saveSettings(){
   settings={hospital:document.getElementById('sHosp').value,dept:document.getElementById('sDept').value,minStock:parseInt(document.getElementById('sMin').value)};
   save();alert('✅ تم حفظ الإعدادات');
 }
+// ═══ نسخة احتياطية ═══
+function exportBackup(){
+  const backup={
+    version:1,
+    date:new Date().toISOString(),
+    items,movements,staff,inventorySessions,movCounter
+  };
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='مخزن_المحاليل_backup_'+new Date().toISOString().split('T')[0]+'.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importBackup(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  if(!confirm('⚠️ استيراد النسخة الاحتياطية سيستبدل كل البيانات الحالية. متأكد؟'))return;
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      const backup=JSON.parse(e.target.result);
+      if(!backup.items||!backup.movements){alert('❌ الملف غير صحيح');return;}
+      items=backup.items||[];
+      movements=backup.movements||[];
+      staff=backup.staff||[];
+      inventorySessions=backup.inventorySessions||[];
+      movCounter=backup.movCounter||0;
+      // رفع على Supabase
+      if(items.length) await sbSaveItems();
+      for(const m of movements) await sbSaveMovement(m);
+      if(staff.length) await sbSaveStaff();
+      if(inventorySessions.length) await sbSaveInventory();
+      save();
+      renderAll();
+      await syncToSheets();
+      alert('✅ تم استيراد البيانات بنجاح — '+items.length+' صنف، '+movements.length+' حركة');
+    }catch(err){
+      alert('❌ خطأ في قراءة الملف: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value='';
+}
+
 function nukeData(){
   if(!confirm('⚠️ مسح كل البيانات نهائياً؟'))return;
   if(!confirm('تأكيد أخير — لا يمكن التراجع!'))return;
