@@ -1727,6 +1727,8 @@ async function deleteInventorySession(sessionId){
   await sbSaveInventory();
   renderInventoryHistory();
   updateDeficitBadge();
+  await sleep(2500);
+  await syncToSheets();
 }
 
 function showJardDetail(idx){
@@ -1848,6 +1850,8 @@ async function delStaff(id){
   staff=staff.filter(s=>s.id!==id);save();
   await sbDeleteRow('staff',id);
   renderStaff();fillSelects();
+  await sleep(2500);
+  await syncToSheets();
 }
 
 // ═══════════════════ ITEMS CRUD ═══════════════════
@@ -1965,6 +1969,8 @@ async function syncAll(){
   await syncToSheets();
 }
 
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
 async function syncToSheets(){
   if(!gsUrl) return;
   const lbl=document.getElementById('gsLabel2');
@@ -1972,13 +1978,35 @@ async function syncToSheets(){
   const msg=document.getElementById('gsMsg');
   if(lbl){ lbl.textContent='📊 جاري المزامنة...'; lbl.style.color='#f0a500'; }
   if(dot){ dot.style.background='#f0a500'; }
-  // استنّى ثانية عشان Supabase يخلّص العملية قبل ما Apps Script يسحب البيانات
-  await new Promise(r=>setTimeout(r,1500));
-  const ts=Date.now();
-  const url=gsUrl+(gsUrl.includes('?')?'&':'?')+'t='+ts+'&sync=all';
+
+  // بنبعت البيانات الحالية مباشرة لـ Apps Script عشان يكتبها في الشيت
+  // كده مش محتاجين Apps Script يسحب من Supabase وبيضمن دايماً البيانات الصح
   try{
-    await fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'});
+    const payload = {
+      items: items.map(i=>({
+        id:i.id, name:i.name, page:i.page, stock:i.stock,
+        unit:i.unit||'زجاجة', min_stock:i.minStock||50, notes:i.notes||''
+      })),
+      movements: movements.map(m=>({
+        id:m.id, serial:m.serial, type:m.type,
+        item_name:m.itemName, qty:m.qty, doc_no:m.docNo,
+        party:m.party, staff_name:m.staffName, date:m.date, notes:m.notes||''
+      })),
+      staff: staff.map(s=>({
+        id:s.id, name:s.name, role:s.role||'صيدلاني', phone:s.phone||''
+      })),
+      inventory: inventorySessions
+    };
+
+    await fetch(gsUrl, {
+      method:'POST',
+      mode:'no-cors',
+      cache:'no-store',
+      headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify(payload)
+    });
   }catch(e){}
+
   if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#34a853'; }
   if(dot){ dot.style.background='#34a853'; }
   if(msg){ msg.textContent='✅ تمت مزامنة Google Sheets — '+new Date().toLocaleTimeString('ar-EG'); }
@@ -2146,7 +2174,8 @@ async function deleteItem(id){
   await Promise.all(delMovIds.map(mid=>sbDeleteRow('movements',mid)));
   await sbDeleteRow('items',id);
   renderAll();
-  setTimeout(function(){ syncToSheets(); }, 2000);
+  await sleep(2500);
+  await syncToSheets();
 }
 
 async function deleteItemFromModal(){
@@ -2251,8 +2280,8 @@ async function deleteMov(movId){
   await sbDeleteRow('movements',movId);
   await sbSaveItems();
   renderAll();
-  // انتظر ثانيتين عشان Supabase يخلّص قبل مزامنة الشيت
-  setTimeout(function(){ syncToSheets(); }, 2000);
+  await sleep(2500);
+  await syncToSheets();
 }
 
 
