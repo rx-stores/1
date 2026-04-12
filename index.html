@@ -546,23 +546,57 @@ tbody tr:last-child td{border-bottom:none}
 
     <!-- ══════════ DASHBOARD ══════════ -->
     <div id="page-dashboard" class="page active">
-      <div class="stats-row" id="statsRow"></div>
-      <div id="lowAlert"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" class="dash-grid">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🕐 آخر الحركات</div>
-            <button class="btn btn-ghost btn-sm" onclick="gotoPage('movements')">كل الحركات ←</button>
+
+
+      <!-- صف كروت التنبيهات -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+        <!-- نفذ -->
+        <div class="card" style="border-color:rgba(248,81,73,0.4)">
+          <div class="card-header" style="padding:10px 14px">
+            <div class="card-title" style="font-size:13px">🔴 نفذ من المخزن</div>
           </div>
-          <div class="card-body no-pad" style="padding:0 16px" id="recentMov"></div>
+          <div class="card-body no-pad" id="dashOut"></div>
         </div>
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚠️ تنبيهات المخزون</div>
+
+        <!-- منخفض -->
+        <div class="card" style="border-color:rgba(240,165,0,0.4)">
+          <div class="card-header" style="padding:10px 14px">
+            <div class="card-title" style="font-size:13px">🟡 قارب على النفاد</div>
           </div>
-          <div class="card-body no-pad" style="padding:0 16px" id="stockAlerts"></div>
+          <div class="card-body no-pad" id="dashLow"></div>
         </div>
+
+        <!-- زيادة / راكد -->
+        <div class="card" style="border-color:rgba(88,166,255,0.3)">
+          <div class="card-header" style="padding:10px 14px">
+            <div class="card-title" style="font-size:13px">🔵 مخزون زيادة (أكثر من 12 شهر)</div>
+          </div>
+          <div class="card-body no-pad" id="dashOver"></div>
+        </div>
+
+        <!-- راكد -->
+        <div class="card" style="border-color:rgba(139,148,158,0.3)">
+          <div class="card-header" style="padding:10px 14px">
+            <div class="card-title" style="font-size:13px">⚫ أصناف راكدة (لا حركة)</div>
+          </div>
+          <div class="card-body no-pad" id="dashStale"></div>
+        </div>
+
       </div>
+
+      <!-- صف: الأعلى صرفاً + الجهات -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+        <div class="card">
+          <div class="card-header" style="padding:10px 14px">
+            <div class="card-title" style="font-size:13px">📈 الأعلى صرفاً هذا الشهر</div>
+          </div>
+          <div class="card-body no-pad" id="dashTopItems"></div>
+        </div>
+
+      </div>
+
     </div>
 
     <!-- ══════════ ITEMS ══════════ -->
@@ -1165,37 +1199,73 @@ async function sbDeleteRow(table,id){
 }
 
 async function sbSaveInventory(){
-  // حفظ محلي دايماً
+  // حفظ محلي دايماً كـ backup
   localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
-  // حفظ على Supabase
+  // حفظ على Supabase في جدولين:
+  // 1. app_settings كـ JSON (للقراءة السريعة)
+  // 2. inventory_sessions كسجلات منفصلة (للموثوقية)
   try{
+    // حفظ في app_settings
     await sbUpsert('app_settings',[{
       key:'inventory_sessions',
       value:JSON.stringify(inventorySessions)
     }]);
   }catch(e){
-    console.error('sbSaveInventory error:',e);
+    console.error('sbSaveInventory app_settings error:',e);
+  }
+  try{
+    // حفظ كل session كسجل منفصل في inventory_sessions
+    if(inventorySessions.length){
+      // أولاً امسح القديم
+      await fetch(SB_URL+'/rest/v1/inventory_sessions',{
+        method:'DELETE',
+        headers:{...sbHeaders(),'Accept':'application/json'}
+      }).catch(()=>{});
+      // ارفع الجديد
+      const rows=inventorySessions.map(s=>({
+        id:s.id,
+        data:JSON.stringify(s),
+        created_at:s.createdAt||new Date().toISOString()
+      }));
+      await sbUpsert('inventory_sessions',rows);
+    }
+  }catch(e){
+    // مش مشكلة لو inventory_sessions مش موجود
   }
 }
 
 async function sbLoadInventory(){
   try{
     const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.inventory_sessions',{headers:sbHeaders()});
-    if(!r.ok){
-      inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
-      return;
-    }
+    if(!r.ok) throw new Error('fetch failed');
     const data=await r.json();
-    if(data.length && data[0].value){
-      inventorySessions=JSON.parse(data[0].value);
-      localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
-    } else {
-      // لو Supabase فاضي جرّب الـ local وارفعه
-      inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
-      if(inventorySessions.length) await sbSaveInventory();
+    if(data && data.length && data[0] && data[0].value){
+      const parsed=JSON.parse(data[0].value);
+      if(Array.isArray(parsed)){
+        inventorySessions=parsed;
+        localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
+        return;
+      }
     }
+    // app_settings فاضي — جرّب inventory_sessions جدول
+    throw new Error('empty');
   }catch(e){
+    try{
+      const r2=await fetch(SB_URL+'/rest/v1/inventory_sessions?select=data&order=created_at.asc',{headers:sbHeaders()});
+      if(r2.ok){
+        const rows=await r2.json();
+        if(rows && rows.length){
+          inventorySessions=rows.map(r=>JSON.parse(r.data)).reverse();
+          localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
+          // ارفع على app_settings كمان
+          await sbSaveInventory();
+          return;
+        }
+      }
+    }catch(e2){}
+    // fallback للـ localStorage
     inventorySessions=JSON.parse(localStorage.getItem('rx_inventory')||'[]');
+    if(inventorySessions.length) await sbSaveInventory();
   }
 }
 
@@ -1277,7 +1347,7 @@ async function loadFromSupabase(){
     await sbLoadInventory();
     if(!items.length) await seedItems();
     setSBStatus('online');
-    hideLoader();tick();renderAll();
+    startClock();hideLoader();renderAll();
     // اقرأ الـ gsUrl من Supabase عشان يكون موحّد على كل الأجهزة
     // الـ URL محفوظ في الكود — أظهر الزرار دايماً
     document.getElementById('gsUrlInput').value=gsUrl;
@@ -1293,7 +1363,7 @@ async function loadFromSupabase(){
       msg += '\nتحقق من الاتصال بالإنترنت.';
     }
     alert(msg);
-    tick();renderAll();
+    startClock();renderAll();
   }
 }
 
@@ -1344,10 +1414,20 @@ function seedItems(){
 }
 
 function tick(){
-  const now=new Date();
-  document.getElementById('sideDate').textContent=now.toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  document.getElementById('sideTime').textContent=now.toLocaleTimeString('ar-EG');
-  setTimeout(tick,30000);
+  // مش بتتكلم تاني — الساعة شغّالة بـ startClock
+}
+
+function startClock(){
+  if(window._clockInterval) clearInterval(window._clockInterval);
+  function updateClock(){
+    const now=new Date();
+    const dateEl=document.getElementById('sideDate');
+    const timeEl=document.getElementById('sideTime');
+    if(dateEl) dateEl.textContent=now.toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    if(timeEl) timeEl.textContent=now.toLocaleTimeString('ar-EG');
+  }
+  updateClock();
+  window._clockInterval=setInterval(updateClock,1000);
 }
 
 // ═══════════════════ RENDER ALL ═══════════════════
@@ -1365,50 +1445,97 @@ function renderAll(){
 // ═══════════════════ DASHBOARD ═══════════════════
 function renderDash(){
   const now=new Date(), m=now.getMonth(), y=now.getFullYear();
-  const mmovs=movements.filter(x=>{const d=new Date(x.date);return d.getMonth()===m&&d.getFullYear()===y});
-  const mOut=mmovs.filter(x=>x.type==='صرف').reduce((s,x)=>s+x.qty,0);
-  const mIn =mmovs.filter(x=>x.type==='وارد').reduce((s,x)=>s+x.qty,0);
+  const thisMonth=movements.filter(x=>{const d=new Date(x.date);return d.getMonth()===m&&d.getFullYear()===y});
+  const mOut=thisMonth.filter(x=>x.type==='صرف').reduce((s,x)=>s+x.qty,0);
   const low=items.filter(i=>i.stock>0&&i.stock<=i.minStock).length;
-  const out=items.filter(i=>i.stock<=0).length;
-  document.getElementById('statsRow').innerHTML=`
-    <div class="stat-card"><div class="stat-icon">📦</div><div class="stat-val">${items.length}</div><div class="stat-lbl">إجمالي الأصناف</div></div>
-    <div class="stat-card amber"><div class="stat-icon">📤</div><div class="stat-val">${mOut.toLocaleString()}</div><div class="stat-lbl">صرف هذا الشهر</div></div>
-    <div class="stat-card green"><div class="stat-icon">📥</div><div class="stat-val">${mIn.toLocaleString()}</div><div class="stat-lbl">وارد هذا الشهر</div></div>
-    <div class="stat-card red"><div class="stat-icon">⚠️</div><div class="stat-val">${low+out}</div><div class="stat-lbl">تحتاج تزويد</div></div>
-    <div class="stat-card blue"><div class="stat-icon">📋</div><div class="stat-val">${movements.length}</div><div class="stat-lbl">إجمالي الحركات</div></div>
-    <div class="stat-card purple"><div class="stat-icon">🔍</div><div class="stat-val">${inventorySessions.length}</div><div class="stat-lbl">جلسات الجرد</div></div>`;
+  const outN=items.filter(i=>i.stock<=0).length;
 
-  // Recent
-  const recent=[...movements].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
-  const rmEl=document.getElementById('recentMov');
-  rmEl.innerHTML=recent.length?recent.map(m=>`
-    <div class="mov-item">
-      <div class="mov-icon ${m.type}">${m.type==='صرف'?'📤':'📥'}</div>
-      <div class="mov-info">
-        <div class="mov-title">${m.itemName} <span class="badge ${m.type==='صرف'?'badge-red':'badge-green'}">${m.type}</span></div>
-        <div class="mov-sub">#${m.serial} · ${m.docNo} · ${m.party} · ${m.staffName} · ${fmt(m.date)}</div>
-      </div>
-      <div class="mov-qty ${m.type}">${m.type==='صرف'?'−':'+'}${m.qty.toLocaleString()}</div>
-    </div>`).join(''):`<div class="empty"><div class="empty-icon">📋</div>لا توجد حركات بعد</div>`;
 
-  // Stock alerts
-  const alerts=items.filter(i=>i.stock<=i.minStock).sort((a,b)=>a.stock-b.stock);
-  document.getElementById('stockAlerts').innerHTML=alerts.length?alerts.map(i=>{
-    const pct=i.stock<=0?0:Math.round((i.stock/i.minStock)*100);
-    return`<div class="mov-item">
-      <div class="mov-icon ${i.stock<=0?'صرف':'وارد'}">${i.stock<=0?'🔴':'🟡'}</div>
-      <div class="mov-info">
-        <div class="mov-title">${i.name} <span class="badge ${i.stock<=0?'badge-red':'badge-amber'}">${i.stock<=0?'نفد':'منخفض'}</span></div>
-        <div class="prob-wrap">
-          <div class="prob-bar"><div class="prob-fill" style="width:${pct}%;background:${i.stock<=0?'var(--red)':'var(--amber)'}"></div></div>
-          <span style="font-size:11px;color:var(--text2)">${i.stock.toLocaleString()} ${i.unit}</span>
-        </div>
-      </div>
+  function itemRow(i, extra=''){
+    const avg=avgMonthly(i.id);
+    const months=avg>0?(i.stock/avg).toFixed(1):'∞';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px"><span style="color:var(--teal);margin-left:4px">ص${i.page}</span>${i.name}</span>
+      <span style="font-size:11px;color:${extra||'var(--text2)'}">رصيد: ${i.stock.toLocaleString()} ${extra?'| يكفي: '+months+' شهر':''}</span>
     </div>`;
-  }).join(''):`<div class="empty"><div class="empty-icon">✅</div>كل الأصناف بمستويات جيدة</div>`;
+  }
+
+  // ══ نفذ ══
+  const outItems=items.filter(i=>i.stock<=0).sort((a,b)=>a.page-b.page);
+  document.getElementById('dashOut').innerHTML=outItems.length
+    ?outItems.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px"><span style="color:var(--teal);margin-left:4px">ص${i.page}</span>${i.name}</span>
+        <span style="font-size:11px;color:var(--red);font-weight:700">نفد</span>
+      </div>`).join('')
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text2)">✅ لا يوجد</div>`;
+
+  // ══ منخفض (أكثر من 0 وأقل من الحد الأدنى) ══
+  const lowItems=items.filter(i=>i.stock>0&&i.stock<=i.minStock).sort((a,b)=>a.stock/a.minStock-b.stock/b.minStock);
+  document.getElementById('dashLow').innerHTML=lowItems.length
+    ?lowItems.map(i=>{
+        const pct=Math.round((i.stock/i.minStock)*100);
+        return`<div style="padding:7px 14px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:12px"><span style="color:var(--teal);margin-left:4px">ص${i.page}</span>${i.name}</span>
+            <span style="font-size:11px;color:var(--amber)">${i.stock.toLocaleString()}</span>
+          </div>
+          <div style="height:4px;background:var(--bg3);border-radius:2px">
+            <div style="height:4px;width:${pct}%;background:var(--amber);border-radius:2px"></div>
+          </div>
+        </div>`;}).join('')
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text2)">✅ لا يوجد</div>`;
+
+  // ══ زيادة (يكفي أكثر من 12 شهر) ══
+  const overItems=items.filter(i=>{const avg=avgMonthly(i.id);return avg>0&&(i.stock/avg)>12;}).sort((a,b)=>{
+    const avg_a=avgMonthly(a.id),avg_b=avgMonthly(b.id);
+    return (b.stock/avg_b)-(a.stock/avg_a);
+  });
+  document.getElementById('dashOver').innerHTML=overItems.length
+    ?overItems.map(i=>{const avg=avgMonthly(i.id);const months=(i.stock/avg).toFixed(0);
+        return`<div style="display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border)">
+          <span style="font-size:12px"><span style="color:var(--teal);margin-left:4px">ص${i.page}</span>${i.name}</span>
+          <span style="font-size:11px;color:#58a6ff">${months} شهر</span>
+        </div>`;}).join('')
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text2)">لا يوجد</div>`;
+
+  // ══ راكد (لا صرف في آخر 3 أشهر) ══
+  const threeMonthsAgo=new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
+  const staleItems=items.filter(i=>{
+    const last=movements.filter(m=>m.itemId===i.id&&m.type==='صرف').sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    return !last||new Date(last.date)<threeMonthsAgo;
+  }).sort((a,b)=>a.page-b.page);
+  document.getElementById('dashStale').innerHTML=staleItems.length
+    ?staleItems.map(i=>{
+        const last=movements.filter(m=>m.itemId===i.id&&m.type==='صرف').sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+        return`<div style="display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border)">
+          <span style="font-size:12px"><span style="color:var(--teal);margin-left:4px">ص${i.page}</span>${i.name}</span>
+          <span style="font-size:11px;color:var(--text3)">${last?'آخر صرف: '+fmt(last.date):'لا صرف'}</span>
+        </div>`;}).join('')
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text2)">لا يوجد</div>`;
+
+  // ══ الأعلى صرفاً هذا الشهر ══
+  const topMap={};
+  thisMonth.filter(x=>x.type==='صرف').forEach(x=>{topMap[x.itemId]=(topMap[x.itemId]||0)+x.qty;});
+  const topItems=Object.entries(topMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxVal=topItems[0]?topItems[0][1]:1;
+  document.getElementById('dashTopItems').innerHTML=topItems.length
+    ?topItems.map(([id,qty],i)=>{
+        const item=items.find(x=>x.id===id);
+        const pct=Math.round((qty/maxVal)*100);
+        return`<div style="padding:7px 14px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:12px">#${i+1} ${item?item.name:id}</span>
+            <span style="font-size:11px;color:var(--amber);font-weight:700">${qty.toLocaleString()}</span>
+          </div>
+          <div style="height:4px;background:var(--bg3);border-radius:2px">
+            <div style="height:4px;width:${pct}%;background:var(--teal);border-radius:2px"></div>
+          </div>
+        </div>`;}).join('')
+    :`<div style="padding:12px 14px;font-size:12px;color:var(--text2)">لا توجد حركات هذا الشهر</div>`;
+
 }
 
-// ═══════════════════ ITEMS ═══════════════════
+
 function renderItemsTable(data){
   const list=(data||[...items]).sort((a,b)=>a.page-b.page);
   document.getElementById('itemsTbody').innerHTML=list.length?list.map(item=>{
@@ -2058,34 +2185,58 @@ function toXLS(rows,filename){
 }
 
 function exportMovXLS(){
+  // يصدّر الفلتر الحالي بالظبط (ما هو ظاهر في الجدول)
+  const q=document.getElementById('movSearch').value.trim().toLowerCase();
+  const t=document.getElementById('movTypeF').value;
+  const mn=document.getElementById('movMonthF').value;
+  const it=document.getElementById('movItemF').value;
+  let list=[...movements];
+  if(q) list=list.filter(m=>m.itemName.toLowerCase().includes(q)||m.docNo.toLowerCase().includes(q)||m.party.toLowerCase().includes(q)||m.staffName.toLowerCase().includes(q));
+  if(t) list=list.filter(m=>m.type===t);
+  if(mn) list=list.filter(m=>m.date.startsWith(mn));
+  if(it) list=list.filter(m=>m.itemId===it);
+  list.sort((a,b)=>a.serial-b.serial);
   const rows=[['#','النوع','الصنف','صفحة','الكمية','الإذن/فاتورة','الجهة','المسؤول','التاريخ','ملاحظات']];
-  [...movements].sort((a,b)=>a.serial-b.serial).forEach(m=>{
+  list.forEach(m=>{
     const pg=items.find(i=>i.id===m.itemId)?.page||'';
     rows.push([m.serial,m.type,m.itemName,pg,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||'']);
   });
-  toXLS(rows,'سجل_الحركات_'+new Date().toISOString().split('T')[0]);
+  const suffix=it?(items.find(i=>i.id===it)?.name||''):(mn||'الكل');
+  toXLS(rows,'الحركات_'+suffix+'_'+new Date().toISOString().split('T')[0]);
 }
 
 function exportStockXLS(){
-  const rows=[['صفحة','الصنف','الرصيد','الوحدة','الحد الأدنى','المعدل/شهر','إجمالي صرف','إجمالي وارد','الحالة']];
+  const rows=[['صفحة','الصنف','الرصيد الحالي','الوحدة','الحد الأدنى',
+    'المعدل الشهري','الكفاية (شهر)','إجمالي صرف كل الوقت','إجمالي وارد كل الوقت','الحالة']];
   [...items].sort((a,b)=>a.page-b.page).forEach(item=>{
+    const avg=avgMonthly(item.id);
+    const months=avg>0?(item.stock/avg).toFixed(1):'∞';
     const tOut=movements.filter(m=>m.itemId===item.id&&m.type==='صرف').reduce((s,m)=>s+m.qty,0);
     const tIn=movements.filter(m=>m.itemId===item.id&&m.type==='وارد').reduce((s,m)=>s+m.qty,0);
     const st=item.stock<=0?'نفد':item.stock<=item.minStock?'منخفض':'جيد';
-    rows.push([item.page,item.name,item.stock,item.unit,item.minStock,avgMonthly(item.id),tOut,tIn,st]);
+    rows.push([item.page,item.name,item.stock,item.unit,item.minStock,
+      avg>0?avg:'—',months,tOut,tIn,st]);
   });
-  toXLS(rows,'ستوك_'+new Date().toISOString().split('T')[0]);
+  toXLS(rows,'ستوك_الأصناف_'+new Date().toISOString().split('T')[0]);
 }
 
 function exportRepXLS(){
+  // يصدّر نفس الفلتر الحالي في التقرير بالظبط
   const from=document.getElementById('rFrom').value;
   const to=document.getElementById('rTo').value;
-  let list=movements;
-  if(from)list=list.filter(m=>m.date>=from);
-  if(to)list=list.filter(m=>m.date<=to);
-  const rows=[['#','النوع','الصنف','الكمية','الإذن','الجهة','المسؤول','التاريخ']];
-  list.sort((a,b)=>a.serial-b.serial).forEach(m=>rows.push([m.serial,m.type,m.itemName,m.qty,m.docNo,m.party,m.staffName,m.date]));
-  toXLS(rows,'تقرير_'+new Date().toISOString().split('T')[0]);
+  const itemId=document.getElementById('rItem').value;
+  const type=document.getElementById('rType').value;
+  let list=[...movements];
+  if(from) list=list.filter(m=>m.date>=from);
+  if(to)   list=list.filter(m=>m.date<=to);
+  if(itemId) list=list.filter(m=>m.itemId===itemId);
+  if(type)   list=list.filter(m=>m.type===type);
+  list.sort((a,b)=>a.serial-b.serial);
+  const rows=[['#','النوع','الصنف','الكمية','الإذن/فاتورة','الجهة','المسؤول','التاريخ','ملاحظات']];
+  list.forEach(m=>rows.push([m.serial,m.type,m.itemName,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||'']));
+  const itemName=itemId?(items.find(i=>i.id===itemId)?.name||''):'';
+  const suffix=[itemName,type,from,to].filter(Boolean).join('_')||'الكل';
+  toXLS(rows,'تقرير_'+suffix+'_'+new Date().toISOString().split('T')[0]);
 }
 
 function exportAllXLS(){
@@ -2100,7 +2251,17 @@ function exportAllXLS(){
 }
 
 function exportMovPDF(){
-  const list=[...movements].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  // يصدّر الفلتر الحالي
+  const q=document.getElementById('movSearch').value.trim().toLowerCase();
+  const t=document.getElementById('movTypeF').value;
+  const mn=document.getElementById('movMonthF').value;
+  const it=document.getElementById('movItemF').value;
+  let list=[...movements];
+  if(q) list=list.filter(m=>m.itemName.toLowerCase().includes(q)||m.docNo.toLowerCase().includes(q)||m.party.toLowerCase().includes(q)||m.staffName.toLowerCase().includes(q));
+  if(t) list=list.filter(m=>m.type===t);
+  if(mn) list=list.filter(m=>m.date.startsWith(mn));
+  if(it) list=list.filter(m=>m.itemId===it);
+  list.sort((a,b)=>new Date(b.date)-new Date(a.date));
   const win=window.open('','_blank');
   win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>تقرير الحركات</title>
   <style>body{font-family:Arial;font-size:12px}h2,h3{text-align:center;color:#0a3d62}
