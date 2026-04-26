@@ -575,6 +575,108 @@ tbody tr:last-child td{border-bottom:none}
   .auth-container.guest-active .auth-toggle-panel.toggle-right{bottom:0;}
 }
 
+
+/* ══ LIQUID LOADER ══ */
+#sbLoader {
+  position:fixed;inset:0;
+  background:linear-gradient(135deg, #e8eeff 0%, #f0f4ff 100%);
+  z-index:9998;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;
+}
+.liquid-loader {
+  display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px;
+}
+.loader-track {
+  position:relative;width:200px;height:32px;
+  background:linear-gradient(135deg,#dde5ff,#c5d0f0);
+  border-radius:16px;overflow:hidden;
+  box-shadow:inset 0 2px 4px rgba(116,148,236,0.3), 0 1px 3px rgba(255,255,255,0.8);
+}
+.liquid-fill {
+  position:absolute;top:2px;left:2px;
+  height:calc(100% - 4px);
+  background:linear-gradient(90deg,#7494ec,#5a7de0,#a78bfa,#7494ec);
+  border-radius:14px;
+  animation:liquidFill 3s ease-in-out infinite, colorShift 3s linear infinite;
+  box-shadow:0 0 12px rgba(116,148,236,0.5),inset 0 1px 2px rgba(255,255,255,0.3);
+}
+.loader-title {
+  font-size:13px;font-weight:700;color:#7494ec;
+  letter-spacing:2px;text-transform:uppercase;
+  animation:textGlow 1.5s ease-in-out infinite;
+}
+.loader-sub {
+  font-size:12px;color:#a8b8e8;margin-top:2px;
+}
+.loading-dots {
+  display:flex;gap:6px;margin-top:4px;
+}
+.loading-dots span {
+  width:8px;height:8px;border-radius:50%;
+  background:#7494ec;
+  animation:dotBounce 1.2s ease-in-out infinite;
+}
+.loading-dots span:nth-child(2){animation-delay:0.2s;}
+.loading-dots span:nth-child(3){animation-delay:0.4s;}
+
+@keyframes liquidFill {
+  0%   { width:4px; }
+  50%  { width:calc(100% - 4px); }
+  100% { width:4px; }
+}
+@keyframes colorShift {
+  0%   { filter:hue-rotate(0deg) brightness(1); }
+  50%  { filter:hue-rotate(30deg) brightness(1.1); }
+  100% { filter:hue-rotate(0deg) brightness(1); }
+}
+@keyframes textGlow {
+  0%,100% { opacity:0.6; }
+  50%      { opacity:1; }
+}
+@keyframes dotBounce {
+  0%,100% { transform:translateY(0); opacity:0.4; }
+  50%      { transform:translateY(-6px); opacity:1; }
+}
+
+.sidebar-clock-wrap {
+  margin:10px;padding:12px 14px;
+  background:rgba(255,255,255,0.15);
+  border:1px solid rgba(255,255,255,0.2);
+  border-radius:12px;
+}
+.clock-display { margin-bottom:10px; }
+.clock-time-row {
+  display:flex;align-items:baseline;gap:5px;
+}
+.clock-time {
+  font-size:28px;font-weight:700;color:#fff;
+  letter-spacing:2px;font-family:monospace;
+  text-shadow:0 0 12px rgba(255,255,255,0.3);
+}
+.clock-ampm {
+  font-size:13px;color:rgba(255,255,255,0.7);font-weight:600;
+}
+.clock-date {
+  font-size:11px;color:rgba(255,255,255,0.8);margin-top:4px;
+}
+.clock-day {
+  font-size:12px;color:#fff;font-weight:600;margin-top:2px;
+}
+.clock-toggle {
+  display:flex;gap:4px;
+  background:rgba(0,0,0,0.15);
+  border-radius:20px;padding:3px;
+}
+.clock-btn {
+  flex:1;text-align:center;padding:4px 0;
+  border-radius:16px;font-size:11px;font-weight:600;
+  color:rgba(255,255,255,0.6);cursor:pointer;
+  transition:all 0.2s;
+}
+.clock-btn-active {
+  background:rgba(255,255,255,0.25);color:#fff;
+}
 /* ── AUTH ── */
 .auth-overlay{
   position:fixed;inset:0;background:#0d1117;
@@ -630,7 +732,7 @@ tbody tr:last-child td{border-bottom:none}
 
 <!-- SIDEBAR -->
 <div class="sidebar" id="sidebar">
-  <div class="sidebar-logo">
+  <div class="sidebar-logo" style="position:relative">
     <div class="logo-mark">
       <div class="logo-rx">Rx</div>
       <div>
@@ -638,10 +740,27 @@ tbody tr:last-child td{border-bottom:none}
         <div class="logo-sub">مخزن المحاليل الطبية<br>جامعة المنصورة</div>
       </div>
     </div>
+    <button onclick="toggleSidebar()" style="
+      position:absolute;left:10px;top:50%;transform:translateY(-50%);
+      background:rgba(255,255,255,0.2);border:none;border-radius:50%;
+      width:30px;height:30px;color:#fff;font-size:16px;cursor:pointer;
+      display:none;align-items:center;justify-content:center;
+      line-height:1;
+    " id="sidebarCloseBtn">✕</button>
   </div>
-  <div class="sidebar-date">
-    <strong id="sideDate">—</strong>
-    <span id="sideTime">—</span>
+  <div class="sidebar-clock-wrap">
+    <div class="clock-display">
+      <div class="clock-time-row">
+        <span class="clock-time" id="sideTime">00:00:00</span>
+        <span class="clock-ampm" id="sideAmpm">AM</span>
+      </div>
+      <div class="clock-date" id="sideDate">—</div>
+      <div class="clock-day" id="sideDay">—</div>
+    </div>
+    <div class="clock-toggle">
+      <div class="clock-btn clock-btn-active" id="clk12" onclick="setClockMode(12)">12</div>
+      <div class="clock-btn" id="clk24" onclick="setClockMode(24)">24</div>
+    </div>
   </div>
   <nav class="nav">
     <div class="nav-section">الرئيسية</div>
@@ -676,7 +795,7 @@ tbody tr:last-child td{border-bottom:none}
 <!-- MAIN -->
 <div class="main">
   <div class="topbar">
-    <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()">☰</button>
     <div>
       <div class="page-title" id="topTitle">لوحة التحكم</div>
       <div class="page-subtitle" id="topSub">نظرة عامة على المخزن</div>
@@ -1468,13 +1587,20 @@ function init(){
 }
 
 function showLoader(msg,icon){
-  // بيظهر بس في التحميل الأولي مش في كل عملية
   if(document.getElementById('sbLoader'))return;
-  document.body.insertAdjacentHTML('beforeend',
-    `<div id="sbLoader" style="position:fixed;inset:0;background:rgba(13,17,23,0.93);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#e6edf3;pointer-events:none">
-      <div style="font-size:40px">${icon}</div>
-      <div style="font-size:17px;font-weight:700">${msg}</div>
-      <div style="font-size:12px;color:#8b949e">Supabase Database</div>
+  document.body.insertAdjacentHTML('beforeend',`
+    <div id="sbLoader">
+      <div class="liquid-loader">
+        <div class="loader-title">RxStore</div>
+        <div class="loader-sub">مخزن المحاليل الطبية</div>
+        <div class="loader-track">
+          <div class="liquid-fill"></div>
+        </div>
+        <div class="loading-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <div style="font-size:12px;color:#a8b8e8;margin-top:6px">${msg}</div>
+      </div>
     </div>`);
 }
 function hideLoader(){const el=document.getElementById('sbLoader');if(el)el.remove();}
@@ -1578,17 +1704,45 @@ function tick(){
   // مش بتتكلم تاني — الساعة شغّالة بـ startClock
 }
 
+let clockMode = 12; // 12 or 24
+
+function setClockMode(mode){
+  clockMode = mode;
+  document.getElementById('clk12').className = 'clock-btn' + (mode===12?' clock-btn-active':'');
+  document.getElementById('clk24').className = 'clock-btn' + (mode===24?' clock-btn-active':'');
+}
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+
 function startClock(){
   if(window._clockInterval) clearInterval(window._clockInterval);
   function updateClock(){
-    const now=new Date();
-    const dateEl=document.getElementById('sideDate');
-    const timeEl=document.getElementById('sideTime');
-    if(dateEl) dateEl.textContent=now.toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-    if(timeEl) timeEl.textContent=now.toLocaleTimeString('ar-EG');
+    // توقيت مصر الصيفي UTC+3
+    const now = new Date();
+    const egypt = new Date(now.toLocaleString('en-US', {timeZone:'Africa/Cairo'}));
+
+    let h = egypt.getHours();
+    let m = egypt.getMinutes();
+    let s = egypt.getSeconds();
+    let ampm = '';
+
+    if(clockMode === 12){
+      ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+    }
+
+    const timeEl = document.getElementById('sideTime');
+    const ampmEl = document.getElementById('sideAmpm');
+    const dateEl = document.getElementById('sideDate');
+    const dayEl  = document.getElementById('sideDay');
+
+    if(timeEl) timeEl.textContent = pad2(h)+':'+pad2(m)+':'+pad2(s);
+    if(ampmEl){ ampmEl.textContent = ampm; ampmEl.style.display = clockMode===12?'inline':'none'; }
+    if(dateEl) dateEl.textContent = egypt.toLocaleDateString('ar-EG',{day:'numeric',month:'long',year:'numeric'});
+    if(dayEl)  dayEl.textContent  = egypt.toLocaleDateString('ar-EG',{weekday:'long'});
   }
   updateClock();
-  window._clockInterval=setInterval(updateClock,1000);
+  window._clockInterval = setInterval(updateClock, 1000);
 }
 
 // ═══════════════════ RENDER ALL ═══════════════════
@@ -1662,6 +1816,7 @@ function renderDash(){
   // ══ راكد (لا صرف في آخر 3 أشهر) ══
   const threeMonthsAgo=new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
   const staleItems=items.filter(i=>{
+    if(i.stock<=0) return false; // شيل المنتهية — دي ناقصة مش راكدة
     const last=movements.filter(m=>m.itemId===i.id&&m.type==='صرف').sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
     return !last||new Date(last.date)<threeMonthsAgo;
   }).sort((a,b)=>a.page-b.page);
@@ -2671,6 +2826,17 @@ function applyMovSort(list){
     if(va>vb) return movSortDir==='asc'?1:-1;
     return 0;
   });
+}
+
+
+function toggleSidebar(){
+  const sb = document.getElementById('sidebar');
+  const hamburger = document.getElementById('hamburgerBtn');
+  const closeBtn = document.getElementById('sidebarCloseBtn');
+  const isOpen = sb.classList.contains('open');
+  sb.classList.toggle('open');
+  // الـ ✕ يظهر جوا الـ sidebar لما تفتح، الـ ☰ يفضل في الـ topbar دايماً
+  if(closeBtn) closeBtn.style.display = isOpen ? 'none' : 'flex';
 }
 
 // ── AUTH LOGIC ──
