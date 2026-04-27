@@ -781,9 +781,9 @@ tbody tr:last-child td{border-bottom:none}
       <div class="sb-dot loading" id="sbDot"></div>
       <span id="sbLabel">جاري الاتصال...</span>
     </div>
-    <div class="sb-status" id="gsSheetStatus" style="display:flex;cursor:pointer" onclick="syncToSheets()" title="مزامنة Google Sheets الآن">
+    <div class="sb-status" id="gsSheetStatus" style="display:flex" title="حالة مزامنة Google Sheets">
       <div class="sb-dot" id="gsDot2" style="background:#fff"></div>
-      <span id="gsLabel2" style="color:#fff">📊 مزامنة Sheets</span>
+      <span id="gsLabel2" style="color:#fff">📊 Sheets</span>
     </div>
     <div class="gs-indicator" onclick="gotoPage('settings')" id="gsIndicator" style="display:none">
       <div class="gs-dot" id="gsDot"></div>
@@ -2891,6 +2891,13 @@ function closeAuth(){
 }
 
 function applyGuestMode(){
+  // مزامنة Sheets — للزائر بس مؤشر حالة بدون ضغط
+  const gsBtn = document.getElementById('gsSheetStatus');
+  if(gsBtn){
+    gsBtn.style.cursor = 'default';
+    gsBtn.onclick = null;
+    gsBtn.title = 'حالة مزامنة Google Sheets (للعرض فقط)';
+  }
   // إخفاء تاب الإعدادات
   document.querySelectorAll('.nav-item').forEach(function(el){
     if(el.getAttribute('onclick') && el.getAttribute('onclick').includes('settings'))
