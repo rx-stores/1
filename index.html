@@ -677,6 +677,24 @@ tbody tr:last-child td{border-bottom:none}
 .clock-btn-active {
   background:rgba(255,255,255,0.25);color:#fff;
 }
+
+/* ══ ORDERS ══ */
+.order-status-badge {
+  padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;
+}
+.order-status-pending  { background:var(--amber-dim);color:var(--amber); }
+.order-status-partial  { background:var(--blue-dim);color:var(--blue); }
+.order-status-complete { background:var(--green-dim);color:var(--green); }
+.order-item-row { display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border); }
+.order-recv-input { width:80px;padding:5px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:13px; }
+@media print {
+  body > *:not(#urgentPrintModal) { display:none !important; }
+  #urgentPrintModal { position:fixed;inset:0;display:flex !important;z-index:99999;background:#fff; }
+  .overlay { position:static !important; }
+  .modal { box-shadow:none !important;max-width:100% !important; }
+  .modal-head,.modal-foot { display:none !important; }
+}
+
 /* ── AUTH ── */
 .auth-overlay{
   position:fixed;inset:0;background:#0d1117;
@@ -772,6 +790,7 @@ tbody tr:last-child td{border-bottom:none}
     <div class="nav-section">التقييم</div>
     <div class="nav-item" onclick="gotoPage('inventory')"><span class="icon">🔍</span> الجرد<span class="nav-badge" id="deficitBadge" style="display:none">!</span></div>
     <div class="nav-item" onclick="gotoPage('reports')"><span class="icon">📊</span> التقارير</div>
+    <div class="nav-item" onclick="gotoPage('orders')"><span class="icon">📦</span> الطلبيات</div>
     <div class="nav-section">الإدارة</div>
     <div class="nav-item" onclick="gotoPage('staff')"><span class="icon">👥</span> الموظفين</div>
     <div class="nav-item" onclick="gotoPage('settings')"><span class="icon">⚙️</span> الإعدادات</div>
@@ -1190,6 +1209,73 @@ function syncFromSupabase() {
       </div>
     </div>
 
+
+    <!-- ══════════ صفحة الطلبيات ══════════ -->
+    <div id="page-orders" class="page">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">📦 الطلبية الشهرية</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-teal" onclick="approveOrder()">✅ اعتماد الطلبية</button>
+            <button class="btn btn-ghost btn-sm" onclick="printOrderPDF('preview')">👁️ معاينة PDF</button>
+          </div>
+        </div>
+        <div class="card-body no-pad">
+          <table id="orderTable">
+            <thead><tr>
+              <th>ص</th><th>الصنف</th><th>الوحدة</th>
+              <th>المعدل/شهر</th><th>×</th><th>الكمية المطلوبة</th><th></th>
+            </tr></thead>
+            <tbody id="orderTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- أرشيف الطلبيات -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🗂️ أرشيف الطلبيات</div>
+        </div>
+        <div class="card-body no-pad" id="ordersArchive"></div>
+      </div>
+    </div>
+
+    <!-- مودال تفاصيل طلبية -->
+    <div class="overlay" id="orderDetailModal">
+      <div class="modal" style="max-width:760px">
+        <div class="modal-head">
+          <h3 id="orderDetailTitle">تفاصيل الطلبية</h3>
+          <button class="close-btn" onclick="closeModal('orderDetailModal')">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- تبويبات -->
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <button class="btn btn-teal btn-sm" onclick="showOrderTab('tracking')" id="tabTracking">📦 تتبع الاستلام</button>
+            <button class="btn btn-ghost btn-sm" onclick="showOrderTab('compare')" id="tabCompare">📊 مقارنة</button>
+          </div>
+          <div id="orderTabContent"></div>
+        </div>
+        <div class="modal-foot" id="orderDetailFoot">
+          <button class="btn btn-ghost" onclick="closeModal('orderDetailModal')">إغلاق</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- مودال طباعة الاستعجال -->
+    <div class="overlay" id="urgentPrintModal">
+      <div class="modal" style="max-width:800px">
+        <div class="modal-head">
+          <h3>⚡ استعجال إلكتروني — هيئة الشراء الموحد</h3>
+          <button class="close-btn" onclick="closeModal('urgentPrintModal')">✕</button>
+        </div>
+        <div class="modal-body" id="urgentPrintContent"></div>
+        <div class="modal-foot">
+          <button class="btn btn-teal" onclick="window.print()">🖨️ طباعة</button>
+          <button class="btn btn-ghost" onclick="closeModal('urgentPrintModal')">إغلاق</button>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -1233,6 +1319,11 @@ function syncFromSupabase() {
           <select id="eiUnit"><option>زجاجة</option><option>كيس</option><option>علبة</option><option>أمبول</option><option>لتر</option><option>ملي</option><option>وحدة</option></select>
         </div>
         <div class="fg"><label>ملاحظات</label><input id="eiNotes"></div>
+        <div class="fg span-all">
+          <label>الاسم التجاري (للطلبيات فقط — بالإنجليزي)</label>
+          <input id="eiTradeName" placeholder="e.g. Sodium Chloride 0.9% 500ml - CompanyName">
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">يُستخدم فقط في طباعة الطلبيات وطلبات الاستعجال، لا يؤثر على الموقع</div>
+        </div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1632,6 +1723,7 @@ async function loadFromSupabase(){
     movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
     // تحميل الجرد من Supabase
     await sbLoadInventory();
+    await sbLoadOrders();
     if(!items.length) await seedItems();
     setSBStatus('online');
     startClock();hideLoader();renderAll();
@@ -1748,6 +1840,8 @@ function startClock(){
 // ═══════════════════ RENDER ALL ═══════════════════
 function renderAll(){
   renderDash();
+  if(document.getElementById('orderTbody')) renderOrderTable();
+  if(document.getElementById('ordersArchive')) renderOrdersArchive();
   renderItemsTable();
   renderMovTable();
   renderStaff();
@@ -2326,6 +2420,7 @@ function openEditItem(id){
   document.getElementById('eiMin').value=item.minStock;
   document.getElementById('eiUnit').value=item.unit;
   document.getElementById('eiNotes').value=item.notes||'';
+  document.getElementById('eiTradeName').value=item.tradeName||'';
   openModal('editItemModal');
 }
 
@@ -2338,6 +2433,7 @@ async function updateItem(){
   item.minStock=parseInt(document.getElementById('eiMin').value)||50;
   item.unit=document.getElementById('eiUnit').value;
   item.notes=document.getElementById('eiNotes').value.trim();
+  item.tradeName=document.getElementById('eiTradeName').value.trim();
   save();
   await sbSaveItems();
   renderAll();closeModal('editItemModal');
@@ -2839,6 +2935,570 @@ function toggleSidebar(){
   if(closeBtn) closeBtn.style.display = isOpen ? 'none' : 'flex';
 }
 
+
+// ═══════════════════════════════════════════════════════
+// ██████  الطلبيات الشهرية — النسخة المحدّثة
+// ═══════════════════════════════════════════════════════
+let monthlyOrders=[];
+let currentOrderId=null;
+
+async function sbSaveOrders(){
+  localStorage.setItem('rx_orders',JSON.stringify(monthlyOrders));
+  try{
+    await sbUpsert('app_settings',[{key:'monthly_orders',value:JSON.stringify(monthlyOrders)}]);
+  }catch(e){}
+}
+async function sbLoadOrders(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.monthly_orders',{headers:sbHeaders()});
+    if(!r.ok) throw new Error();
+    const d=await r.json();
+    if(d.length&&d[0].value){monthlyOrders=JSON.parse(d[0].value);return;}
+  }catch(e){}
+  monthlyOrders=JSON.parse(localStorage.getItem('rx_orders')||'[]');
+}
+
+// ── جدول الطلبية (كل صنف بمضاعفه المنفصل) ──
+function renderOrderTable(){
+  const tbody=document.getElementById('orderTbody');
+  if(!tbody) return;
+  if(RX_ROLE==='guest'){
+    tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text2)">الطلبية متاحة للعرض بعد اعتمادها من المدير</td></tr>';
+    return;
+  }
+  const sorted=[...items].sort((a,b)=>a.page-b.page);
+  tbody.innerHTML=sorted.map(item=>{
+    const avg=avgMonthly(item.id);
+    const def=2;
+    const qty=Math.ceil(avg*def);
+    return`<tr>
+      <td style="color:var(--teal);font-weight:700">ص${item.page}</td>
+      <td style="font-weight:600;font-size:12px">${item.name}</td>
+      <td style="color:var(--text2);font-size:11px">${item.unit||'زجاجة'}</td>
+      <td style="color:var(--amber);font-weight:600">${avg>0?Math.round(avg).toLocaleString():'—'}</td>
+      <td>
+        <input type="number" class="order-recv-input" id="omult_${item.id}"
+          value="2" min="1" max="24"
+          onchange="recalcOrderQty('${item.id}')"
+          style="width:60px;padding:4px 6px;font-size:13px;font-weight:700;text-align:center">
+      </td>
+      <td>
+        <input type="number" class="order-recv-input" id="oqty_${item.id}"
+          value="${qty||0}" min="0" style="width:85px">
+      </td>
+      <td><button class="btn btn-ghost btn-sm" onclick="recalcOrderQty('${item.id}')">↺</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function recalcOrderQty(itemId){
+  const inp=document.getElementById('omult_'+itemId);
+  const qty=document.getElementById('oqty_'+itemId);
+  if(!inp||!qty) return;
+  const m=parseInt(inp.value)||1;
+  const avg=avgMonthly(itemId);
+  qty.value=Math.ceil(avg*m)||0;
+}
+
+// ── اعتماد الطلبية ──
+async function approveOrder(){
+  if(RX_ROLE==='guest'){alert('للمدير فقط');return;}
+  if(!confirm('اعتماد الطلبية الشهرية؟')) return;
+  const supplyNo=''; // سيتم إدخاله لاحقاً في التتبع
+  const sorted=[...items].sort((a,b)=>a.page-b.page);
+  const orderItems=sorted.map(item=>{
+    const avg=avgMonthly(item.id);
+    const multInp=document.getElementById('omult_'+item.id);
+    const qtyInp=document.getElementById('oqty_'+item.id);
+    const mult=multInp?parseInt(multInp.value)||1:1;
+    const qty=qtyInp?parseInt(qtyInp.value)||0:Math.ceil(avg*mult);
+    return{
+      itemId:item.id,itemName:item.name,
+      tradeName:item.tradeName||item.name,
+      unit:item.unit||'زجاجة',page:item.page,
+      avgMonthly:Math.round(avg),multiplier:mult,
+      requested:qty,
+      receivedTotal:0,
+      log:[] // [{date,supplyOrderNo,qty,status:'received'|'rejected',note}]
+    };
+  }).filter(i=>i.requested>0);
+
+  const order={
+    id:'ord_'+Date.now(),
+    serial:monthlyOrders.length+1,
+    date:new Date().toISOString().split('T')[0],
+    supplyRequestNo:supplyNo,
+    items:orderItems,
+    createdAt:new Date().toISOString()
+  };
+  monthlyOrders.unshift(order);
+  await sbSaveOrders();
+  renderOrdersArchive();
+  alert('✅ تم اعتماد الطلبية #'+order.serial);
+}
+
+// ── أرشيف الطلبيات ──
+function renderOrdersArchive(){
+  const el=document.getElementById('ordersArchive');
+  if(!el) return;
+  if(!monthlyOrders.length){
+    el.innerHTML='<div class="empty" style="padding:20px">لا توجد طلبيات معتمدة بعد</div>';
+    return;
+  }
+  el.innerHTML=monthlyOrders.map(ord=>{
+    const total=ord.items.reduce((s,i)=>s+i.requested,0);
+    const recvd=ord.items.reduce((s,i)=>s+i.receivedTotal,0);
+    const pct=total>0?Math.round((recvd/total)*100):0;
+    const st=pct>=100?'complete':pct>0?'partial':'pending';
+    const stLbl={complete:'✅ مكتملة',partial:'🟡 وصل جزء',pending:'⏳ قيد الانتظار'};
+    const stCls={complete:'order-status-complete',partial:'order-status-partial',pending:'order-status-pending'};
+    return`<div style="padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;font-size:13px">طلبية #${ord.serial} — ${ord.date}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">
+            طلب إمداد: <strong>${ord.supplyRequestNo||'—'}</strong>
+            · ${ord.items.length} صنف · ${total.toLocaleString()} وحدة
+          </div>
+          <div style="margin-top:6px;background:var(--bg3);border-radius:6px;height:6px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:var(--teal);border-radius:6px"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${pct}% (${recvd.toLocaleString()} من ${total.toLocaleString()})</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span class="order-status-badge ${stCls[st]}">${stLbl[st]}</span>
+          <button class="btn btn-ghost btn-sm" onclick="openOrderDetail('${ord.id}')">📋 تتبع</button>
+          <button class="btn btn-teal btn-sm" onclick="printOrderPDF('${ord.id}')">🖨️ PDF</button>
+          <button class="btn btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(214,48,49,0.3)"
+            onclick="deleteOrder('${ord.id}')">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function deleteOrder(ordId){
+  if(!confirm('حذف هذه الطلبية؟')) return;
+  monthlyOrders=monthlyOrders.filter(o=>o.id!==ordId);
+  await sbSaveOrders();renderOrdersArchive();
+}
+
+// ── تفاصيل الطلبية — تتبع الاستلام ──
+function openOrderDetail(ordId){
+  currentOrderId=ordId;
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  document.getElementById('orderDetailTitle').textContent='طلبية #'+ord.serial+' — '+ord.date;
+  openModal('orderDetailModal');
+  showOrderTab('tracking');
+}
+
+function showOrderTab(tab){
+  ['tracking','urgent','compare'].forEach(t=>{
+    const btn=document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(btn) btn.className='btn btn-'+(t===tab?'teal':'ghost')+' btn-sm';
+  });
+  const ord=monthlyOrders.find(o=>o.id===currentOrderId);
+  if(!ord){return;}
+  const el=document.getElementById('orderTabContent');
+
+  if(tab==='tracking'){
+    el.innerHTML=`
+      <!-- رقم طلب الإمداد مرة واحدة فوق -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--bg3);border-radius:10px;border:1px solid var(--border)">
+        <span style="font-weight:700;font-size:13px">رقم طلب الإمداد:</span>
+        <input id="trackSupplyNo" value="${ord.supplyRequestNo||''}"
+          placeholder="أدخل رقم طلب الإمداد"
+          style="flex:1;padding:6px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif">
+        <button class="btn btn-teal btn-sm" onclick="saveSupplyNo('${ord.id}')">حفظ</button>
+      </div>
+      <!-- قائمة الأصناف -->
+      ${ord.items.map(item=>{
+        const rem=item.requested-item.receivedTotal;
+        const pct=Math.round((item.receivedTotal/item.requested)*100);
+        const stColor=pct>=100?'var(--green)':pct>0?'var(--amber)':'var(--red)';
+        return`<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden">
+          <!-- رأس الصنف -->
+          <div style="padding:10px 14px;background:var(--bg3);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="color:var(--teal);font-weight:700">ص${item.page}</span>
+            <span style="font-weight:600;flex:1">${item.itemName}</span>
+            <span style="font-size:11px;color:var(--text2)">مطلوب: <strong>${item.requested}</strong></span>
+            <span style="font-size:11px;color:var(--green)">وصل: <strong>${item.receivedTotal}</strong></span>
+            <span style="font-size:11px;font-weight:700;color:${stColor}">متبقي: ${rem}</span>
+            <span style="font-size:11px;color:${stColor}">${pct}%</span>
+            <button class="btn btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(214,48,49,0.3);font-size:11px"
+              onclick="printItemUrgent('${ord.id}','${item.itemId}')">⚡ استعجال Excel</button>
+          </div>
+          <!-- log الاستلام -->
+          <div style="padding:8px 14px">
+            ${item.log.length?item.log.map((lg,li)=>`
+              <div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
+                <span style="color:${lg.status==='received'?'var(--green)':'var(--red)'}">${lg.status==='received'?'✅ وصل':'❌ لم يصل'}</span>
+                <span style="color:var(--text2)">أمر توريد: <strong>${lg.supplyOrderNo||'—'}</strong></span>
+                <span>كمية: <strong>${lg.qty}</strong></span>
+                <span style="color:var(--text3)">${lg.date}</span>
+                ${lg.note?`<span style="color:var(--amber);font-size:11px">${lg.note}</span>`:''}
+                <button onclick="removeLog('${ord.id}','${item.itemId}',${li})"
+                  style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">✕</button>
+              </div>`).join(''):'<div style="font-size:11px;color:var(--text3);padding:4px 0">لا توجد سجلات بعد</div>'}
+            <!-- إضافة سجل جديد -->
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+              <select id="lstatus_${item.itemId}" style="padding:5px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:12px">
+                <option value="received">✅ وصل</option>
+                <option value="rejected">❌ لم يصل</option>
+              </select>
+              <input type="text" id="lno_${item.itemId}" placeholder="رقم أمر التوريد"
+                style="width:130px;padding:5px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:12px">
+              <input type="number" id="lqty_${item.itemId}" placeholder="الكمية" min="1"
+                style="width:80px;padding:5px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:12px">
+              <input type="text" id="lnote_${item.itemId}" placeholder="ملاحظة (اختياري)"
+                style="width:130px;padding:5px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:12px">
+              <button class="btn btn-teal btn-sm" onclick="addLog('${ord.id}','${item.itemId}')">+ تسجيل</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+      <!-- استعجال مجمّع ──────────────────────── -->
+      <div style="padding:12px;text-align:center;border-top:2px solid var(--border);margin-top:8px">
+        <button class="btn btn-amber" onclick="printAllUrgent('${ord.id}')">⚡ تصدير استعجال مجمّع (Excel)</button>
+      </div>`;
+
+  } else if(tab==='compare'){
+    const total=ord.items.reduce((s,i)=>s+i.requested,0);
+    const recvd=ord.items.reduce((s,i)=>s+i.receivedTotal,0);
+    el.innerHTML=`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="stat-card"><div class="stat-icon">📦</div><div class="stat-val">${total.toLocaleString()}</div><div class="stat-lbl">إجمالي مطلوب</div></div>
+        <div class="stat-card green"><div class="stat-icon">✅</div><div class="stat-val">${recvd.toLocaleString()}</div><div class="stat-lbl">وصل فعلاً</div></div>
+        <div class="stat-card red"><div class="stat-icon">⏳</div><div class="stat-val">${(total-recvd).toLocaleString()}</div><div class="stat-lbl">لم يصل</div></div>
+      </div>
+      <table><thead><tr><th>الصنف</th><th>مطلوب</th><th>وصل</th><th>نسبة</th></tr></thead>
+      <tbody>${ord.items.map(i=>{
+        const pct=i.requested>0?Math.round((i.receivedTotal/i.requested)*100):0;
+        return`<tr>
+          <td>ص${i.page} ${i.itemName}</td>
+          <td>${i.requested.toLocaleString()}</td>
+          <td style="color:var(--green)">${i.receivedTotal.toLocaleString()}</td>
+          <td><div style="display:flex;align-items:center;gap:6px">
+            <div style="background:var(--bg3);border-radius:4px;height:8px;width:80px;overflow:hidden">
+              <div style="width:${pct}%;height:100%;background:${pct>=100?'var(--green)':pct>0?'var(--amber)':'var(--red)'}"></div>
+            </div>
+            <span style="font-size:11px">${pct}%</span>
+          </div></td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }
+}
+
+async function saveSupplyNo(ordId){
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  const inp=document.getElementById('trackSupplyNo');
+  if(inp) ord.supplyRequestNo=inp.value.trim();
+  await sbSaveOrders();
+  renderOrdersArchive();
+  alert('✅ تم حفظ رقم طلب الإمداد');
+}
+
+async function addLog(ordId,itemId){
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  const item=ord.items.find(i=>i.itemId===itemId);
+  if(!item) return;
+  const status=document.getElementById('lstatus_'+itemId).value;
+  const no=document.getElementById('lno_'+itemId).value.trim();
+  const qty=parseInt(document.getElementById('lqty_'+itemId).value)||0;
+  const note=document.getElementById('lnote_'+itemId).value.trim();
+  if(!qty){alert('أدخل الكمية');return;}
+  item.log.push({
+    date:new Date().toISOString().split('T')[0],
+    supplyOrderNo:no, qty, status, note
+  });
+  if(status==='received') item.receivedTotal=Math.min(item.receivedTotal+qty,item.requested);
+  await sbSaveOrders();
+  showOrderTab('tracking');
+  renderOrdersArchive();
+}
+
+async function removeLog(ordId,itemId,logIdx){
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  const item=ord.items.find(i=>i.itemId===itemId);
+  if(!item) return;
+  const lg=item.log[logIdx];
+  if(lg&&lg.status==='received') item.receivedTotal=Math.max(0,item.receivedTotal-lg.qty);
+  item.log.splice(logIdx,1);
+  await sbSaveOrders();
+  showOrderTab('tracking');
+  renderOrdersArchive();
+}
+
+// ── طباعة الطلبية PDF ──
+function printOrderPDF(ordId){
+  // معاينة قبل الاعتماد
+  if(ordId==='preview'){
+    const sorted=[...items].sort((a,b)=>a.page-b.page);
+    const supNo=document.getElementById('orderSupplyNo')?document.getElementById('orderSupplyNo').value.trim():'—';
+    const rows=sorted.map(item=>{
+      const avg=avgMonthly(item.id);
+      const multSel=document.getElementById('omult_'+item.id);
+      const qtyInp=document.getElementById('oqty_'+item.id);
+      const mult=multSel?parseInt(multSel.value)||2:2;
+      const qty=qtyInp?parseInt(qtyInp.value)||0:Math.ceil(avg*mult);
+      return`<tr>
+        <td style="text-align:center">${item.page}</td>
+        <td contenteditable="true" style="background:#fffde7;min-width:200px">${item.tradeName||item.name}</td>
+        <td style="text-align:center">${item.unit||'زجاجة'}</td>
+        <td style="text-align:center">×${mult}</td>
+        <td style="text-align:center;font-weight:700">${qty.toLocaleString()}</td>
+      </tr>`;
+    }).filter((_,i)=>{
+      const item=sorted[i];
+      const qtyInp=document.getElementById('oqty_'+item.id);
+      return qtyInp&&parseInt(qtyInp.value)>0;
+    }).join('');
+    const win=window.open('','_blank');
+    win.document.write(`<!DOCTYPE html><html dir="rtl"><head>
+      <meta charset="UTF-8"><title>طلبية شهرية</title>
+      <style>body{font-family:Arial,sans-serif;padding:20px;direction:rtl}
+      h2{text-align:center}table{width:100%;border-collapse:collapse;font-size:13px}
+      th{background:#7494ec;color:#fff;padding:8px;border:1px solid #ccc}
+      td{padding:7px 10px;border:1px solid #ccc}tr:nth-child(even){background:#f5f7ff}
+      [contenteditable]{outline:1px dashed #aaa}.btn{display:block;margin:16px auto;padding:10px 30px;background:#7494ec;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer}
+      @media print{.btn{display:none}[contenteditable]{outline:none}}</style>
+    </head><body>
+      <h2>مستشفى الطوارئ — جامعة المنصورة</h2>
+      <div style="text-align:center;margin-bottom:12px;font-size:13px">
+        رقم طلب الإمداد: <strong>${supNo}</strong> — تاريخ: ${new Date().toLocaleDateString('ar-EG')}
+      </div>
+      <p style="font-size:11px;color:#888;margin-bottom:10px">* الخلايا الصفراء قابلة للتعديل قبل الطباعة</p>
+      <table><thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>المضاعف</th><th>الكمية المطلوبة</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <button class="btn" onclick="window.print()">🖨️ طباعة</button>
+    </body></html>`);
+    win.document.close();
+    return;
+  }
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  // نسخة الأسماء التجارية قابلة للتعديل
+  const rows=ord.items.map(i=>`
+    <tr>
+      <td style="text-align:center">${i.page}</td>
+      <td contenteditable="true" style="background:#fffde7;min-width:200px">${i.tradeName||i.itemName}</td>
+      <td style="text-align:center">${i.unit}</td>
+      <td style="text-align:center">×${i.multiplier}</td>
+      <td style="text-align:center;font-weight:700">${i.requested.toLocaleString()}</td>
+    </tr>`).join('');
+
+  const win=window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head>
+    <meta charset="UTF-8">
+    <title>طلبية #${ord.serial}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:20px;direction:rtl}
+      h2{text-align:center;margin-bottom:4px}
+      .sub{text-align:center;font-size:13px;color:#555;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th{background:#7494ec;color:#fff;padding:8px;border:1px solid #ccc}
+      td{padding:7px 10px;border:1px solid #ccc}
+      tr:nth-child(even){background:#f5f7ff}
+      [contenteditable]{outline:1px dashed #aaa}
+      .print-btn{display:block;margin:16px auto;padding:10px 30px;background:#7494ec;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer}
+      @media print{.print-btn{display:none}[contenteditable]{outline:none}}
+    </style>
+  </head><body>
+    <h2>مستشفى الطوارئ — جامعة المنصورة</h2>
+    <div class="sub">
+      الطلبية الشهرية #${ord.serial} — تاريخ الاعتماد: ${ord.date}<br>
+      رقم طلب الإمداد: <strong>${ord.supplyRequestNo||'—'}</strong>
+    </div>
+    <p style="font-size:11px;color:#888;margin-bottom:10px">* الخلايا الصفراء قابلة للتعديل قبل الطباعة</p>
+    <table>
+      <thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>المضاعف</th><th>الكمية المطلوبة</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <button class="print-btn" onclick="window.print()">🖨️ طباعة</button>
+  </body></html>`);
+  win.document.close();
+}
+
+// ── استعجال Excel لصنف واحد ──
+async function printItemUrgent(ordId,itemId){
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  const item=ord.items.find(i=>i.itemId===itemId);
+  if(!item) return;
+  const rem=item.requested-item.receivedTotal;
+  if(rem<=0){alert('هذا الصنف وصل بالكامل');return;}
+
+  const tradeName=prompt('اسم الصنف في نموذج الاستعجال:',item.tradeName||item.itemName);
+  if(tradeName===null) return;
+
+  const supplyOrderNos=[...new Set(item.log.map(function(l){return l.supplyOrderNo;}))].filter(Boolean).join(' / ')||'—';
+
+  buildUrgentXLSX(
+    'استعجال_'+tradeName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+ord.date+'.xlsx',
+    ord, [Object.assign({},item,{tradeName:tradeName})],
+    supplyOrderNos
+  );
+}
+
+
+// ── استعجال Excel مجمّع ──
+async function printAllUrgent(ordId){
+  const ord=monthlyOrders.find(o=>o.id===ordId);
+  if(!ord) return;
+  const pending=ord.items.filter(function(i){return i.receivedTotal<i.requested;});
+  if(!pending.length){alert('✅ كل الأصناف وصلت');return;}
+  buildUrgentXLSX(
+    'استعجال_مجمع_طلبية_'+ord.serial+'_'+ord.date+'.xlsx',
+    ord, pending, ''
+  );
+}
+
+// ── بناء ملف Excel الاستعجال عبر Anthropic API (Python server-side) ──
+async function buildUrgentXLSX(filename, ord, itemsList, extraSupplyNos){
+
+  // تجهيز البيانات
+  var rows = itemsList.map(function(item){
+    var rem = item.requested - item.receivedTotal;
+    var supNos = extraSupplyNos ||
+      [...new Set((item.log||[]).map(function(l){return l.supplyOrderNo;}).filter(Boolean))].join(' / ') || '';
+    var supDate = (item.log||[]).length ? item.log[item.log.length-1].date : (ord.date||'');
+    return {
+      name: item.tradeName || item.itemName,
+      unit: item.unit || 'زجاجة',
+      supplier: '',
+      supplyReqNo: ord.supplyRequestNo || '',
+      supplyOrderNo: supNos,
+      supplyDate: supDate,
+      requested: item.requested,
+      received: item.receivedTotal,
+      remaining: rem
+    };
+  });
+
+  // Python code يولّد الملف
+  var pythonCode = `
+import openpyxl, base64, io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+items_data = ${JSON.stringify(rows)}
+
+wb = Workbook()
+ws = wb.active
+ws.title = 'Sheet1'
+ws.sheet_view.rightToLeft = True
+thin = Side(style='thin', color='000000')
+border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+ws.merge_cells('A1:I1')
+ws['A1'] = 'مستشفى الطوارئ - جامعة المنصورة'
+ws['A1'].font = Font(name='Calibri', size=16, bold=True)
+ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+ws['A1'].border = border
+ws.row_dimensions[1].height = 54
+
+ws.merge_cells('A2:I2')
+ws['A2'] = 'إستعجال إلكتروني لهيئة الشراء الموحد للأصناف التي لم يتم توريدها بعد ١٥ يوم من إصدار امر التوريد على إعتبار انه في حالة الإبلاغ عن الاستعجال قبل المدة المذكورة يعتبر الاستعجال لاغي وكذلك في حالة ورود خطأ في بيانات الصنف'
+ws['A2'].font = Font(name='Calibri', size=14, bold=True)
+ws['A2'].alignment = Alignment(horizontal='center', vertical='center', wrapText=True)
+ws['A2'].border = border
+ws.row_dimensions[2].height = 64.5
+
+headers = ['اسم الصنف الذي تم توزيعه على الشركة','الوحدة','اسم الشركة الموردة','رقم طلب الامداد','رقم امر التوريد','تاريخ امر التوريد','الكمية المطلوب تنفيذها','ما تم تنفيذه','الكمية المتبقية']
+for col, h in enumerate(headers, 1):
+    cell = ws.cell(row=3, column=col, value=h)
+    cell.font = Font(name='Calibri', size=12)
+    cell.alignment = Alignment(horizontal='center', vertical='center', wrapText=True)
+    cell.border = border
+ws.row_dimensions[3].height = 31.5
+
+for r, item in enumerate(items_data, 4):
+    ws.row_dimensions[r].height = 15.75
+    vals = [item['name'],item['unit'],item.get('supplier',''),item.get('supplyReqNo',''),item.get('supplyOrderNo',''),item.get('supplyDate',''),item['requested'],item['received'],item['remaining']]
+    for col, val in enumerate(vals, 1):
+        cell = ws.cell(row=r, column=col, value=val)
+        cell.font = Font(name='Calibri', size=12)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = border
+
+last = 3 + len(items_data)
+for row in range(last+1, 32):
+    ws.row_dimensions[row].height = 15.75
+    for col in range(1,10):
+        c = ws.cell(row=row, column=col)
+        c.font = Font(name='Calibri', size=12)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        c.border = border
+
+for i, w in enumerate([25,6,22.5,12.5,13,14.5,13.75,11.37,13.75], 1):
+    ws.column_dimensions[get_column_letter(i)].width = w
+
+buf = io.BytesIO()
+wb.save(buf)
+print(base64.b64encode(buf.getvalue()).decode())
+`;
+
+  // إظهار loading
+  var loadEl = document.createElement('div');
+  loadEl.id = 'xlsxLoader';
+  loadEl.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-family:Cairo,sans-serif';
+  loadEl.innerHTML = '<div style="background:#1c2330;padding:24px 32px;border-radius:12px;text-align:center"><div style="font-size:24px;margin-bottom:8px">📊</div><div>جاري توليد ملف Excel...</div></div>';
+  document.body.appendChild(loadEl);
+
+  try{
+    var resp = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:4000,
+        system:'أنت Python executor. شغّل الكود المعطى واطبع فقط الـ base64 output بدون أي نص آخر على الإطلاق. لا تضف أي شرح أو تعليق.',
+        messages:[{role:'user',content:'شغّل هذا الكود Python واطبع فقط الـ base64:\n\n'+pythonCode}]
+      })
+    });
+
+    var data = await resp.json();
+    var b64 = '';
+    if(data.content && data.content[0]){
+      b64 = data.content[0].text.trim();
+      // شيل أي نص إضافي — خذ فقط الـ base64
+      var match = b64.match(/([A-Za-z0-9+/=]{100,})/);
+      if(match) b64 = match[1];
+    }
+
+    if(b64 && b64.length > 100){
+      // تحميل الملف
+      var binary = atob(b64);
+      var bytes = new Uint8Array(binary.length);
+      for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+      var blob = new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } else {
+      throw new Error('base64 empty');
+    }
+
+  } catch(err){
+    console.error('Excel generation error:',err);
+    alert('❌ تعذّر توليد الملف. تأكد من الاتصال بالإنترنت وحاول مرة أخرى.');
+  } finally {
+    var el = document.getElementById('xlsxLoader');
+    if(el) el.remove();
+  }
+}
+
+
+
+
+
 // ── AUTH LOGIC ──
 var RX_ROLE = null;
 var RX_DEFAULT_PASS = 'rx2025';
@@ -2891,6 +3551,20 @@ function closeAuth(){
 }
 
 function applyGuestMode(){
+  // إخفاء كل عناصر الإدخال في الطلبيات للزائر
+  setTimeout(function(){
+    // إخفاء زرار الاعتماد والمعاينة
+    document.querySelectorAll('[onclick="approveOrder()"]').forEach(function(el){el.style.display='none';});
+    document.querySelectorAll('[onclick*="printOrderPDF"]').forEach(function(el){el.style.display='none';});
+    // تعطيل المضاعفات والكميات
+    document.querySelectorAll('#orderTbody select,#orderTbody input').forEach(function(el){
+      el.disabled=true;el.style.opacity='0.5';
+    });
+    // إخفاء زرار التسجيل في التتبع
+    document.querySelectorAll('[onclick*="addLog"],[onclick*="saveSupplyNo"]').forEach(function(el){
+      el.style.display='none';
+    });
+  },2000);
   // مزامنة Sheets — للزائر بس مؤشر حالة بدون ضغط
   const gsBtn = document.getElementById('gsSheetStatus');
   if(gsBtn){
