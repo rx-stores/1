@@ -460,7 +460,7 @@ tbody tr:last-child td{border-bottom:none}
 .auth-container {
   position:relative;
   width:820px;max-width:95vw;
-  height:520px;
+  height:620px;
   background:#fff;
   border-radius:24px;
   box-shadow:0 25px 60px rgba(0,0,0,0.5);
@@ -710,11 +710,11 @@ tbody tr:last-child td{border-bottom:none}
   box-shadow:0 20px 60px rgba(0,0,0,0.6);
 }
 .auth-logo-area{
-  padding:22px 20px 18px;
+  padding:30px 20px 24px;
   background:#1c2330;border-bottom:1px solid #30363d;
   text-align:center;
 }
-.auth-logo-area img{max-width:200px;max-height:90px;object-fit:contain;}
+.auth-logo-area img{width:340px;height:160px;object-fit:contain;display:block;margin:0 auto;}
 .auth-logo-area p{margin-top:8px;font-size:11px;color:#6e7681;}
 .auth-body{padding:24px;}
 .auth-tabs{display:flex;border-radius:8px;background:#1c2330;border:1px solid #30363d;margin-bottom:18px;overflow:hidden;}
@@ -747,6 +747,8 @@ tbody tr:last-child td{border-bottom:none}
 .logout-link:hover{text-decoration:underline;}
 </style>
 <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPCEtLSDYrtmE2YHZitipINiv2KfYptix2Kkg2LLYsdmC2KfYoSAtLT4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMiIgZmlsbD0iIzc0OTRlYyIvPgogIDwhLS0g2YLYt9ix2Kkg2KjZiti22KfYoSAtLT4KICA8cGF0aCBkPSJNMzIgMTAgQzMyIDEwIDE4IDI4IDE4IDM4IEMxOCA0Ni44IDI0LjMgNTMgMzIgNTMgQzM5LjcgNTMgNDYgNDYuOCA0NiAzOCBDNDYgMjggMzIgMTAgMzIgMTBaIiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC45NSIvPgogIDwhLS0g2YbYtSBSeCAtLT4KICA8dGV4dCB4PSIzMiIgeT0iNDMiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NDk0ZWMiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlJ4PC90ZXh0Pgo8L3N2Zz4=">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPCEtLSDYrtmE2YHZitipINiv2KfYptix2Kkg2LLYsdmC2KfYoSAtLT4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMiIgZmlsbD0iIzc0OTRlYyIvPgogIDwhLS0g2YLYt9ix2Kkg2KjZiti22KfYoSAtLT4KICA8cGF0aCBkPSJNMzIgMTAgQzMyIDEwIDE4IDI4IDE4IDM4IEMxOCA0Ni44IDI0LjMgNTMgMzIgNTMgQzM5LjcgNTMgNDYgNDYuOCA0NiAzOCBDNDYgMjggMzIgMTAgMzIgMTBaIiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC45NSIvPgogIDwhLS0g2YbYtSBSeCAtLT4KICA8dGV4dCB4PSIzMiIgeT0iNDMiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM3NDk0ZWMiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlJ4PC90ZXh0Pgo8L3N2Zz4=">
 </head>
 <body>
 
@@ -784,7 +786,7 @@ tbody tr:last-child td{border-bottom:none}
   </div>
   <nav class="nav">
     <div class="nav-section">الرئيسية</div>
-    <div class="nav-item active" onclick="gotoPage('dashboard')"><span class="icon">⬛</span> لوحة التحكم</div>
+    <div class="nav-item active" onclick="gotoPage('dashboard')"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span> لوحة التحكم</div>
     <div class="nav-section">المخزن</div>
     <div class="nav-item" onclick="gotoPage('items')"><span class="icon">💉</span> الأصناف</div>
     <div class="nav-item" onclick="gotoPage('movements')"><span class="icon">📋</span> الحركات</div>
@@ -3642,20 +3644,39 @@ function closeAuth(){
 }
 
 function applyGuestMode(){
-  // إخفاء كل عناصر الإدخال في الطلبيات للزائر
+  // قيود الزائر على الطلبيات
   setTimeout(function(){
-    // إخفاء زرار الاعتماد والمعاينة
+    // إخفاء أزرار الاعتماد والمعاينة والحذف
     document.querySelectorAll('[onclick="approveOrder()"]').forEach(function(el){el.style.display='none';});
     document.querySelectorAll('[onclick*="printOrderPDF"]').forEach(function(el){el.style.display='none';});
-    // تعطيل المضاعفات والكميات
+    document.querySelectorAll('[onclick*="deleteOrder"]').forEach(function(el){el.style.display='none';});
+    // تعطيل المضاعفات والكميات في جدول الطلبية
     document.querySelectorAll('#orderTbody select,#orderTbody input').forEach(function(el){
       el.disabled=true;el.style.opacity='0.5';
     });
-    // إخفاء زرار التسجيل في التتبع
-    document.querySelectorAll('[onclick*="addLog"],[onclick*="saveSupplyNo"]').forEach(function(el){
+    // إخفاء كل أزرار التعديل في التتبع
+    document.querySelectorAll('[onclick*="addLog"],[onclick*="saveSupplyNo"],[onclick*="removeLog"],[onclick*="confirmExportUrgent"],[onclick*="printItemUrgent"],[onclick*="printAllUrgent"]').forEach(function(el){
       el.style.display='none';
     });
   },2000);
+  
+  // override showOrderTab للزائر — يشيل أزرار التعديل بعد كل render
+  var _origShowOrderTab = showOrderTab;
+  window.showOrderTab = function(tab){
+    _origShowOrderTab(tab);
+    if(RX_ROLE==='guest'){
+      setTimeout(function(){
+        document.querySelectorAll('[onclick*="addLog"],[onclick*="saveSupplyNo"],[onclick*="removeLog"],[onclick*="confirmExportUrgent"],[onclick*="printItemUrgent"],[onclick*="printAllUrgent"],[onclick*="deleteOrder"]').forEach(function(el){
+          el.style.display='none';
+        });
+        // تعطيل inputs في التتبع
+        document.querySelectorAll('#orderTabContent input, #orderTabContent select, #orderTabContent button').forEach(function(el){
+          if(el.tagName==='BUTTON') el.style.display='none';
+          else { el.disabled=true; el.style.opacity='0.6'; }
+        });
+      },100);
+    }
+  };
   // مزامنة Sheets — للزائر بس مؤشر حالة بدون ضغط
   const gsBtn = document.getElementById('gsSheetStatus');
   if(gsBtn){
