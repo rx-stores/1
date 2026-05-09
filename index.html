@@ -393,6 +393,8 @@ tbody tr:last-child td{border-bottom:none}
 
 /* ═══════════════ RESPONSIVE ═══════════════ */
 @media(max-width:768px){
+  .card-body.no-pad{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{min-width:600px;}
   .sidebar{transform:translateX(220px)}
   .sidebar.open{transform:translateX(0)}
   .main{margin-right:0}
@@ -1261,6 +1263,54 @@ function syncFromSupabase() {
       </div>
     </div>
 
+    <!-- مودال بيانات الاستعجال قبل التصدير -->
+    <div class="overlay" id="urgentDataModal">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-head">
+          <h3>⚡ بيانات الاستعجال</h3>
+          <button class="close-btn" onclick="closeModal('urgentDataModal')">✕</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="udOrdId">
+          <input type="hidden" id="udItemId">
+          <input type="hidden" id="udStoredTrade">
+
+          <!-- اسم الصنف — checkboxes -->
+          <div style="margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text)">اسم الصنف في نموذج الاستعجال:</div>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:8px;background:var(--bg3)" id="udOpt1Label">
+              <input type="radio" name="udNameOpt" id="udOpt1" value="stored" onchange="onUdNameOpt()" style="width:16px;height:16px;accent-color:var(--teal)">
+              <span style="font-size:13px">الاسم المحفوظ في كارت الصنف: <strong id="udStoredTradeLabel" style="color:var(--teal)">—</strong></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:var(--bg3)" id="udOpt2Label">
+              <input type="radio" name="udNameOpt" id="udOpt2" value="custom" onchange="onUdNameOpt()" style="width:16px;height:16px;accent-color:var(--teal)">
+              <span style="font-size:13px">كتابة اسم مختلف</span>
+            </label>
+            <div id="udCustomNameWrap" style="display:none;margin-top:8px">
+              <input id="udTradeName" placeholder="اكتب الاسم التجاري بالإنجليزي هنا"
+                style="width:100%;padding:10px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;font-size:13px">
+            </div>
+          </div>
+
+          <!-- باقي البيانات -->
+          <div class="form-grid">
+            <div class="fg">
+              <label>اسم الشركة الموردة</label>
+              <input id="udSupplier" placeholder="اسم الشركة">
+            </div>
+            <div class="fg">
+              <label>تاريخ أمر التوريد</label>
+              <input type="date" id="udSupplyDate" style="direction:ltr">
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-teal" onclick="confirmExportUrgent()">📥 تصدير Excel</button>
+          <button class="btn btn-ghost" onclick="closeModal('urgentDataModal')">إلغاء</button>
+        </div>
+      </div>
+    </div>
+
     <!-- مودال طباعة الاستعجال -->
     <div class="overlay" id="urgentPrintModal">
       <div class="modal" style="max-width:800px">
@@ -1545,7 +1595,8 @@ async function sbSaveItems(){
   await sbUpsert('items',items.map(i=>({
     id:i.id,name:i.name,page:i.page,
     stock:i.stock,unit:i.unit||'زجاجة',
-    min_stock:i.minStock||50,notes:i.notes||''
+    min_stock:i.minStock||50,notes:i.notes||'',
+    trade_name:i.tradeName||''
   })));
 }
 
@@ -1706,6 +1757,7 @@ async function loadFromSupabase(){
       id:r.id,name:r.name,page:r.page,
       stock:parseFloat(r.stock)||0,unit:r.unit||'زجاجة',
       minStock:parseFloat(r.min_stock)||50,notes:r.notes||'',
+      tradeName:r.trade_name||'',
       createdAt:r.created_at||new Date().toISOString()
     }));
     movements=mRows.map(r=>({
@@ -1759,7 +1811,8 @@ async function sbSaveItems(){
   await sbUpsert('items',items.map(i=>({
     id:i.id,name:i.name,page:i.page,
     stock:i.stock,unit:i.unit||'زجاجة',
-    min_stock:i.minStock||50,notes:i.notes||''
+    min_stock:i.minStock||50,notes:i.notes||'',
+    trade_name:i.tradeName||''
   })));
 }
 
@@ -3249,7 +3302,6 @@ function printOrderPDF(ordId){
         <td style="text-align:center">${item.page}</td>
         <td contenteditable="true" style="background:#fffde7;min-width:200px">${item.tradeName||item.name}</td>
         <td style="text-align:center">${item.unit||'زجاجة'}</td>
-        <td style="text-align:center">×${mult}</td>
         <td style="text-align:center;font-weight:700">${qty.toLocaleString()}</td>
       </tr>`;
     }).filter((_,i)=>{
@@ -3272,7 +3324,7 @@ function printOrderPDF(ordId){
         رقم طلب الإمداد: <strong>${supNo}</strong> — تاريخ: ${new Date().toLocaleDateString('ar-EG')}
       </div>
       <p style="font-size:11px;color:#888;margin-bottom:10px">* الخلايا الصفراء قابلة للتعديل قبل الطباعة</p>
-      <table><thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>المضاعف</th><th>الكمية المطلوبة</th></tr></thead>
+      <table><thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>الكمية المطلوبة</th></tr></thead>
       <tbody>${rows}</tbody></table>
       <button class="btn" onclick="window.print()">🖨️ طباعة</button>
     </body></html>`);
@@ -3287,7 +3339,6 @@ function printOrderPDF(ordId){
       <td style="text-align:center">${i.page}</td>
       <td contenteditable="true" style="background:#fffde7;min-width:200px">${i.tradeName||i.itemName}</td>
       <td style="text-align:center">${i.unit}</td>
-      <td style="text-align:center">×${i.multiplier}</td>
       <td style="text-align:center;font-weight:700">${i.requested.toLocaleString()}</td>
     </tr>`).join('');
 
@@ -3315,7 +3366,7 @@ function printOrderPDF(ordId){
     </div>
     <p style="font-size:11px;color:#888;margin-bottom:10px">* الخلايا الصفراء قابلة للتعديل قبل الطباعة</p>
     <table>
-      <thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>المضاعف</th><th>الكمية المطلوبة</th></tr></thead>
+      <thead><tr><th>ص</th><th>اسم الصنف (تجاري)</th><th>الوحدة</th><th>الكمية المطلوبة</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <button class="print-btn" onclick="window.print()">🖨️ طباعة</button>
@@ -3324,22 +3375,86 @@ function printOrderPDF(ordId){
 }
 
 // ── استعجال Excel لصنف واحد ──
-async function printItemUrgent(ordId,itemId){
-  const ord=monthlyOrders.find(o=>o.id===ordId);
+function printItemUrgent(ordId, itemId){
+  const ord = monthlyOrders.find(o=>o.id===ordId);
   if(!ord) return;
-  const item=ord.items.find(i=>i.itemId===itemId);
+  const item = ord.items.find(i=>i.itemId===itemId);
   if(!item) return;
-  const rem=item.requested-item.receivedTotal;
+  const rem = item.requested - item.receivedTotal;
   if(rem<=0){alert('هذا الصنف وصل بالكامل');return;}
 
-  const tradeName=prompt('اسم الصنف في نموذج الاستعجال:',item.tradeName||item.itemName);
-  if(tradeName===null) return;
+  // حفظ المعرفات
+  document.getElementById('udOrdId').value = ordId;
+  document.getElementById('udItemId').value = itemId;
 
-  const supplyOrderNos=[...new Set(item.log.map(function(l){return l.supplyOrderNo;}))].filter(Boolean).join(' / ')||'—';
+  // تاريخ أمر التوريد — يكتبه المستخدم يدوياً
+  document.getElementById('udSupplyDate').value = '';
+  document.getElementById('udSupplier').value = item.supplier || '';
+
+  // تعبئة بيانات الاسم التجاري
+  const storedTrade = item.tradeName || '';
+  document.getElementById('udStoredTrade').value = storedTrade;
+  document.getElementById('udStoredTradeLabel').textContent = storedTrade || '(لا يوجد اسم محفوظ)';
+
+  // لو فيه اسم محفوظ → اختر الأول تلقائي
+  if(storedTrade){
+    document.getElementById('udOpt1').checked = true;
+    document.getElementById('udCustomNameWrap').style.display = 'none';
+  } else {
+    // لا يوجد اسم محفوظ → اختر الثاني مباشرة
+    document.getElementById('udOpt2').checked = true;
+    document.getElementById('udCustomNameWrap').style.display = 'block';
+    document.getElementById('udTradeName').value = '';
+  }
+
+  openModal('urgentDataModal');
+}
+
+function onUdNameOpt(){
+  const opt = document.querySelector('input[name="udNameOpt"]:checked').value;
+  document.getElementById('udCustomNameWrap').style.display = opt==='custom' ? 'block' : 'none';
+  if(opt==='custom') document.getElementById('udTradeName').focus();
+}
+
+async function confirmExportUrgent(){
+  const ordId = document.getElementById('udOrdId').value;
+  const itemId = document.getElementById('udItemId').value;
+  const nameOpt = document.querySelector('input[name="udNameOpt"]:checked');
+  const optVal = nameOpt ? nameOpt.value : 'stored';
+  const tradeName = optVal==='stored'
+    ? document.getElementById('udStoredTrade').value
+    : document.getElementById('udTradeName').value.trim();
+  const supplier = document.getElementById('udSupplier').value.trim();
+  const supplyDate = document.getElementById('udSupplyDate').value;
+
+  if(!tradeName){alert('أدخل اسم الصنف');return;}
+
+  const ord = monthlyOrders.find(o=>o.id===ordId);
+  const item = ord.items.find(i=>i.itemId===itemId);
+  if(!ord||!item) return;
+
+  // حفظ الشركة في الـ log
+  item.supplier = supplier;
+
+  const supplyOrderNos = [...new Set((item.log||[]).map(function(l){return l.supplyOrderNo;}).filter(Boolean))].join(' / ') || '';
+
+  // تحديث supplyDate في الـ log الأخير لو موجود
+  if(item.log && item.log.length && supplyDate){
+    item.log.forEach(function(l){ if(!l.date) l.date = supplyDate; });
+  }
+
+  closeModal('urgentDataModal');
+
+  const exportItem = Object.assign({}, item, {
+    tradeName: tradeName,
+    supplier: supplier,
+    supplyDate: supplyDate
+  });
 
   buildUrgentXLSX(
-    'استعجال_'+tradeName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+ord.date+'.xlsx',
-    ord, [Object.assign({},item,{tradeName:tradeName})],
+    'استعجال_' + tradeName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_') + '_' + (ord.date||'') + '.xlsx',
+    ord,
+    [exportItem],
     supplyOrderNos
   );
 }
@@ -3357,121 +3472,118 @@ async function printAllUrgent(ordId){
   );
 }
 
-// ── بناء ملف Excel الاستعجال ──
+// ── بناء ملف Excel الاستعجال عبر Anthropic API ──
 async function buildUrgentXLSX(filename, ord, itemsList, extraSupplyNos){
-  if(typeof XLSX==='undefined'){
-    alert('جاري تحميل مكتبة Excel، حاول مرة أخرى بعد ثوانٍ');
-    return;
-  }
 
-  var rows = itemsList.map(function(item){
+  var dataRows = itemsList.map(function(item){
     var rem = item.requested - item.receivedTotal;
+    var logs = (item.log||[]);
     var supNos = extraSupplyNos ||
-      [...new Set((item.log||[]).map(function(l){return l.supplyOrderNo;}).filter(Boolean))].join(' / ') || '';
-    var supDate = (item.log||[]).length ? item.log[item.log.length-1].date : (ord.date||'');
-    return [
-      item.tradeName || item.itemName,
-      item.unit || 'زجاجة',
-      '',
-      ord.supplyRequestNo || '',
-      supNos,
-      supDate,
-      item.requested,
-      item.receivedTotal,
-      rem
-    ];
+      logs.map(function(l){return l.supplyOrderNo;}).filter(Boolean)
+      .filter(function(v,i,a){return a.indexOf(v)===i;}).join(' / ') || '';
+    var supDate = logs.length ? logs[logs.length-1].date : (ord.date||'');
+    return {
+      name: item.tradeName || item.itemName,
+      unit: item.unit || 'زجاجة',
+      supplier: '',
+      supplyReqNo: ord.supplyRequestNo || '',
+      supplyOrderNo: supNos,
+      supplyDate: supDate,
+      requested: item.requested,
+      received: item.receivedTotal,
+      remaining: rem
+    };
   });
 
-  var headers = [
-    'اسم الصنف الذي تم توزيعه على الشركة',
-    'الوحدة',
-    'اسم الشركة الموردة',
-    'رقم طلب الامداد',
-    'رقم امر التوريد',
-    'تاريخ امر التوريد',
-    'الكمية المطلوب تنفيذها',
-    'ما تم تنفيذه',
-    'الكمية المتبقية'
-  ];
+  // شاشة تحميل
+  var loader = document.createElement('div');
+  loader.id = 'xlsxLoader';
+  loader.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:Cairo,sans-serif';
+  loader.innerHTML = '<div style="background:#fff;padding:28px 36px;border-radius:14px;text-align:center;color:#333"><div style="font-size:32px;margin-bottom:10px">📊</div><div style="font-size:15px;font-weight:700">جاري توليد ملف Excel...</div><div style="font-size:12px;color:#888;margin-top:6px">قد يستغرق 10-15 ثانية</div></div>';
+  document.body.appendChild(loader);
 
-  // بناء الـ worksheet
-  var wsData = [
-    [' مستشفى الطوارئ - جامعة المنصورة','','','','','','','',''],
-    ['إستعجال إلكتروني لهيئة الشراء الموحد للأصناف التي لم يتم توريدها بعد ١٥ يوم من إصدار امر التوريد على إعتبار انه في حالة الإبلاغ عن الاستعجال قبل المدة المذكورة يعتبر الاستعجال لاغي وكذلك في حالة ورود خطأ في بيانات الصنف','','','','','','','',''],
-    headers
-  ].concat(rows);
+  var dataStr = JSON.stringify(dataRows);
 
-  // صفوف فارغة لحد 31
-  while(wsData.length < 31){
-    wsData.push(['','','','','','','','','']);
-  }
+  var prompt = 'Execute this Python code and return ONLY the base64 string output, nothing else:\n\n' +
+    'import openpyxl,base64,io,json\n' +
+    'from openpyxl import Workbook\n' +
+    'from openpyxl.styles import Font,Alignment,Border,Side\n' +
+    'from openpyxl.utils import get_column_letter\n' +
+    'items_data=' + dataStr + '\n' +
+    'wb=Workbook();ws=wb.active;ws.title=\'Sheet1\';ws.sheet_view.rightToLeft=True\n' +
+    't=Side(style=\'thin\',color=\'000000\');b=Border(left=t,right=t,top=t,bottom=t)\n' +
+    'ws.merge_cells(\'A1:I1\');ws[\'A1\']=\' مستشفى الطوارئ - جامعة المنصورة\'\n' +
+    'ws[\'A1\'].font=Font(name=\'Calibri\',size=16,bold=True)\n' +
+    'ws[\'A1\'].alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
+    'ws[\'A1\'].border=b;ws.row_dimensions[1].height=54\n' +
+    'ws.merge_cells(\'A2:I2\')\n' +
+    'ws[\'A2\']=\'إستعجال إلكتروني لهيئة الشراء الموحد للأصناف التي لم يتم توريدها بعد ١٥ يوم من إصدار امر التوريد على إعتبار انه في حالة الإبلاغ عن الاستعجال قبل المدة المذكورة يعتبر الاستعجال لاغي وكذلك في حالة ورود خطأ في بيانات الصنف\'\n' +
+    'ws[\'A2\'].font=Font(name=\'Calibri\',size=14,bold=True)\n' +
+    'ws[\'A2\'].alignment=Alignment(horizontal=\'center\',vertical=\'center\',wrapText=True)\n' +
+    'ws[\'A2\'].border=b;ws.row_dimensions[2].height=64.5\n' +
+    'hh=[\'اسم الصنف الذي تم توزيعه على الشركة\',\'الوحدة\',\'اسم الشركة الموردة\',\'رقم طلب الامداد\',\'رقم امر التوريد\',\'تاريخ امر التوريد\',\'الكمية المطلوب تنفيذها\',\'ما تم تنفيذه\',\'الكمية المتبقية\']\n' +
+    'for c,h in enumerate(hh,1):\n' +
+    ' cell=ws.cell(row=3,column=c,value=h)\n' +
+    ' cell.font=Font(name=\'Calibri\',size=12)\n' +
+    ' cell.alignment=Alignment(horizontal=\'center\',vertical=\'center\',wrapText=True)\n' +
+    ' cell.border=b\n' +
+    'ws.row_dimensions[3].height=31.5\n' +
+    'for r,item in enumerate(items_data,4):\n' +
+    ' ws.row_dimensions[r].height=15.75\n' +
+    ' vals=[item[\'name\'],item[\'unit\'],item.get(\'supplier\',\'\'),item.get(\'supplyReqNo\',\'\'),item.get(\'supplyOrderNo\',\'\'),item.get(\'supplyDate\',\'\'),item[\'requested\'],item[\'received\'],item[\'remaining\']]\n' +
+    ' for c,v in enumerate(vals,1):\n' +
+    '  cell=ws.cell(row=r,column=c,value=v)\n' +
+    '  cell.font=Font(name=\'Calibri\',size=12)\n' +
+    '  cell.alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
+    '  cell.border=b\n' +
+    'last=3+len(items_data)\n' +
+    'for row in range(last+1,32):\n' +
+    ' ws.row_dimensions[row].height=15.75\n' +
+    ' for col in range(1,10):\n' +
+    '  c2=ws.cell(row=row,column=col)\n' +
+    '  c2.font=Font(name=\'Calibri\',size=12)\n' +
+    '  c2.alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
+    '  c2.border=b\n' +
+    'for i,w in enumerate([25,6,22.5,12.5,13,14.5,13.75,11.37,13.75],1):\n' +
+    ' ws.column_dimensions[get_column_letter(i)].width=w\n' +
+    'buf=io.BytesIO();wb.save(buf);print(base64.b64encode(buf.getvalue()).decode())';
 
-  var ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // دمج A1:I1 و A2:I2
-  ws['!merges'] = [
-    {s:{r:0,c:0}, e:{r:0,c:8}},
-    {s:{r:1,c:0}, e:{r:1,c:8}}
-  ];
-
-  // أبعاد الأعمدة
-  ws['!cols'] = [
-    {wch:25},{wch:6},{wch:22.5},{wch:12.5},
-    {wch:13},{wch:14.5},{wch:13.75},{wch:11.37},{wch:13.75}
-  ];
-
-  // ارتفاع الصفوف
-  ws['!rows'] = [{hpt:54},{hpt:64.5},{hpt:31.5}];
-  for(var r=0; r<wsData.length-3; r++) ws['!rows'].push({hpt:15.75});
-
-  // تنسيق الخلايا
-  var THIN = {style:'thin',color:{rgb:'000000'}};
-  var BDR  = {top:THIN,bottom:THIN,left:THIN,right:THIN};
-
-  function applyStyle(addr, font, align, border){
-    if(!ws[addr]) ws[addr]={v:'',t:'s'};
-    ws[addr].s = {
-      font: font,
-      alignment: align,
-      border: border || BDR
-    };
-  }
-
-  // صف 1
-  applyStyle('A1',
-    {name:'Calibri',sz:16,bold:true},
-    {horizontal:'center',vertical:'center',readingOrder:2},
-    BDR
-  );
-
-  // صف 2
-  applyStyle('A2',
-    {name:'Calibri',sz:14,bold:true},
-    {horizontal:'center',vertical:'center',wrapText:true,readingOrder:2},
-    BDR
-  );
-
-  // صف 3 + البيانات
-  var cols = ['A','B','C','D','E','F','G','H','I'];
-  for(var row=3; row<=wsData.length; row++){
-    cols.forEach(function(col){
-      var addr = col+row;
-      if(!ws[addr]) ws[addr]={v:'',t:'s'};
-      ws[addr].s = {
-        font: {name:'Calibri', sz: row===3 ? 12 : 12},
-        alignment: {horizontal:'center',vertical:'center',wrapText:true,readingOrder:2},
-        border: BDR
-      };
+  try{
+    var resp = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:5000,
+        system:'You are a Python code executor. Run the Python code and return ONLY the base64 string, no other text.',
+        messages:[{role:'user',content:prompt}]
+      })
     });
+
+    var data = await resp.json();
+    if(!data.content||!data.content[0]) throw new Error('no response');
+    var raw = data.content[0].text.trim();
+    var b64 = raw.replace(/[\s\n\r]/g,'');
+    if(b64.length < 500) throw new Error('invalid b64 len='+b64.length+' content='+raw.slice(0,200));
+
+    var bytes = Uint8Array.from(atob(b64),function(c){return c.charCodeAt(0);});
+    var blob = new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+  }catch(err){
+    console.error('Excel error:',err);
+    alert('❌ ' + err.message);
+  }finally{
+    var el=document.getElementById('xlsxLoader');
+    if(el) el.remove();
   }
-
-  // RTL
-  ws['!sheetView'] = [{rightToLeft:true}];
-
-  var wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  XLSX.writeFile(wb, filename, {bookType:'xlsx', type:'binary', cellStyles:true});
 }
+
+
 
 
 
