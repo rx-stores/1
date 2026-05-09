@@ -3475,7 +3475,11 @@ async function printAllUrgent(ordId){
 }
 
 // ── بناء ملف Excel الاستعجال عبر Anthropic API ──
-async function buildUrgentXLSX(filename, ord, itemsList, extraSupplyNos){
+function buildUrgentXLSX(filename, ord, itemsList, extraSupplyNos){
+  if(typeof XLSX==='undefined'){
+    alert('مكتبة Excel غير محملة، انتظر ثوانٍ وحاول مرة أخرى');
+    return;
+  }
 
   var dataRows = itemsList.map(function(item){
     var rem = item.requested - item.receivedTotal;
@@ -3483,107 +3487,83 @@ async function buildUrgentXLSX(filename, ord, itemsList, extraSupplyNos){
     var supNos = extraSupplyNos ||
       logs.map(function(l){return l.supplyOrderNo;}).filter(Boolean)
       .filter(function(v,i,a){return a.indexOf(v)===i;}).join(' / ') || '';
-    var supDate = logs.length ? logs[logs.length-1].date : (ord.date||'');
     return {
       name: item.tradeName || item.itemName,
       unit: item.unit || 'زجاجة',
-      supplier: '',
+      supplier: item.supplier || '',
       supplyReqNo: ord.supplyRequestNo || '',
       supplyOrderNo: supNos,
-      supplyDate: supDate,
+      supplyDate: item.supplyDate || '',
       requested: item.requested,
       received: item.receivedTotal,
       remaining: rem
     };
   });
 
-  // شاشة تحميل
-  var loader = document.createElement('div');
-  loader.id = 'xlsxLoader';
-  loader.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:Cairo,sans-serif';
-  loader.innerHTML = '<div style="background:#fff;padding:28px 36px;border-radius:14px;text-align:center;color:#333"><div style="font-size:32px;margin-bottom:10px">📊</div><div style="font-size:15px;font-weight:700">جاري توليد ملف Excel...</div><div style="font-size:12px;color:#888;margin-top:6px">قد يستغرق 10-15 ثانية</div></div>';
-  document.body.appendChild(loader);
+  var wb = XLSX.utils.book_new();
 
-  var dataStr = JSON.stringify(dataRows);
+  // بناء البيانات
+  var wsData = [
+    [' مستشفى الطوارئ - جامعة المنصورة','','','','','','','',''],
+    ['إستعجال إلكتروني لهيئة الشراء الموحد للأصناف التي لم يتم توريدها بعد ١٥ يوم من إصدار امر التوريد على إعتبار انه في حالة الإبلاغ عن الاستعجال قبل المدة المذكورة يعتبر الاستعجال لاغي وكذلك في حالة ورود خطأ في بيانات الصنف','','','','','','','',''],
+    ['اسم الصنف الذي تم توزيعه على الشركة','الوحدة','اسم الشركة الموردة','رقم طلب الامداد','رقم امر التوريد','تاريخ امر التوريد','الكمية المطلوب تنفيذها','ما تم تنفيذه','الكمية المتبقية']
+  ];
 
-  var prompt = 'Execute this Python code and return ONLY the base64 string output, nothing else:\n\n' +
-    'import openpyxl,base64,io,json\n' +
-    'from openpyxl import Workbook\n' +
-    'from openpyxl.styles import Font,Alignment,Border,Side\n' +
-    'from openpyxl.utils import get_column_letter\n' +
-    'items_data=' + dataStr + '\n' +
-    'wb=Workbook();ws=wb.active;ws.title=\'Sheet1\';ws.sheet_view.rightToLeft=True\n' +
-    't=Side(style=\'thin\',color=\'000000\');b=Border(left=t,right=t,top=t,bottom=t)\n' +
-    'ws.merge_cells(\'A1:I1\');ws[\'A1\']=\' مستشفى الطوارئ - جامعة المنصورة\'\n' +
-    'ws[\'A1\'].font=Font(name=\'Calibri\',size=16,bold=True)\n' +
-    'ws[\'A1\'].alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
-    'ws[\'A1\'].border=b;ws.row_dimensions[1].height=54\n' +
-    'ws.merge_cells(\'A2:I2\')\n' +
-    'ws[\'A2\']=\'إستعجال إلكتروني لهيئة الشراء الموحد للأصناف التي لم يتم توريدها بعد ١٥ يوم من إصدار امر التوريد على إعتبار انه في حالة الإبلاغ عن الاستعجال قبل المدة المذكورة يعتبر الاستعجال لاغي وكذلك في حالة ورود خطأ في بيانات الصنف\'\n' +
-    'ws[\'A2\'].font=Font(name=\'Calibri\',size=14,bold=True)\n' +
-    'ws[\'A2\'].alignment=Alignment(horizontal=\'center\',vertical=\'center\',wrapText=True)\n' +
-    'ws[\'A2\'].border=b;ws.row_dimensions[2].height=64.5\n' +
-    'hh=[\'اسم الصنف الذي تم توزيعه على الشركة\',\'الوحدة\',\'اسم الشركة الموردة\',\'رقم طلب الامداد\',\'رقم امر التوريد\',\'تاريخ امر التوريد\',\'الكمية المطلوب تنفيذها\',\'ما تم تنفيذه\',\'الكمية المتبقية\']\n' +
-    'for c,h in enumerate(hh,1):\n' +
-    ' cell=ws.cell(row=3,column=c,value=h)\n' +
-    ' cell.font=Font(name=\'Calibri\',size=12)\n' +
-    ' cell.alignment=Alignment(horizontal=\'center\',vertical=\'center\',wrapText=True)\n' +
-    ' cell.border=b\n' +
-    'ws.row_dimensions[3].height=31.5\n' +
-    'for r,item in enumerate(items_data,4):\n' +
-    ' ws.row_dimensions[r].height=15.75\n' +
-    ' vals=[item[\'name\'],item[\'unit\'],item.get(\'supplier\',\'\'),item.get(\'supplyReqNo\',\'\'),item.get(\'supplyOrderNo\',\'\'),item.get(\'supplyDate\',\'\'),item[\'requested\'],item[\'received\'],item[\'remaining\']]\n' +
-    ' for c,v in enumerate(vals,1):\n' +
-    '  cell=ws.cell(row=r,column=c,value=v)\n' +
-    '  cell.font=Font(name=\'Calibri\',size=12)\n' +
-    '  cell.alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
-    '  cell.border=b\n' +
-    'last=3+len(items_data)\n' +
-    'for row in range(last+1,32):\n' +
-    ' ws.row_dimensions[row].height=15.75\n' +
-    ' for col in range(1,10):\n' +
-    '  c2=ws.cell(row=row,column=col)\n' +
-    '  c2.font=Font(name=\'Calibri\',size=12)\n' +
-    '  c2.alignment=Alignment(horizontal=\'center\',vertical=\'center\')\n' +
-    '  c2.border=b\n' +
-    'for i,w in enumerate([25,6,22.5,12.5,13,14.5,13.75,11.37,13.75],1):\n' +
-    ' ws.column_dimensions[get_column_letter(i)].width=w\n' +
-    'buf=io.BytesIO();wb.save(buf);print(base64.b64encode(buf.getvalue()).decode())';
+  dataRows.forEach(function(r){
+    wsData.push([r.name,r.unit,r.supplier,r.supplyReqNo,r.supplyOrderNo,r.supplyDate,r.requested,r.received,r.remaining]);
+  });
 
-  try{
-    var resp = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:5000,
-        system:'You are a Python code executor. Run the Python code and return ONLY the base64 string, no other text.',
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-
-    var data = await resp.json();
-    if(!data.content||!data.content[0]) throw new Error('no response');
-    var raw = data.content[0].text.trim();
-    var b64 = raw.replace(/[\s\n\r]/g,'');
-    if(b64.length < 500) throw new Error('invalid b64 len='+b64.length+' content='+raw.slice(0,200));
-
-    var bytes = Uint8Array.from(atob(b64),function(c){return c.charCodeAt(0);});
-    var blob = new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-
-  }catch(err){
-    console.error('Excel error:',err);
-    alert('❌ ' + err.message);
-  }finally{
-    var el=document.getElementById('xlsxLoader');
-    if(el) el.remove();
+  // صفوف فارغة لحد 31
+  while(wsData.length < 31){
+    wsData.push(['','','','','','','','','']);
   }
+
+  var ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // دمج الخلايا
+  ws['!merges'] = [
+    {s:{r:0,c:0},e:{r:0,c:8}},
+    {s:{r:1,c:0},e:{r:1,c:8}}
+  ];
+
+  // عرض الأعمدة
+  ws['!cols'] = [{wch:25},{wch:6},{wch:22.5},{wch:12.5},{wch:13},{wch:14.5},{wch:13.75},{wch:11.37},{wch:13.75}];
+
+  // ارتفاع الصفوف
+  var rows = [{hpt:54},{hpt:64.5},{hpt:31.5}];
+  for(var r=0;r<wsData.length-3;r++) rows.push({hpt:15.75});
+  ws['!rows'] = rows;
+
+  // تنسيق الخلايا
+  var THIN = {style:'thin',color:{rgb:'000000'}};
+  var BDR = {top:THIN,bottom:THIN,left:THIN,right:THIN};
+
+  // صف 1
+  if(ws['A1']) ws['A1'].s = {font:{name:'Calibri',sz:16,bold:true},alignment:{horizontal:'center',vertical:'center',readingOrder:2},border:BDR};
+  // صف 2
+  if(ws['A2']) ws['A2'].s = {font:{name:'Calibri',sz:14,bold:true},alignment:{horizontal:'center',vertical:'center',wrapText:true,readingOrder:2},border:BDR};
+
+  // صف 3 + بيانات
+  var cols = ['A','B','C','D','E','F','G','H','I'];
+  for(var row=3;row<=wsData.length;row++){
+    cols.forEach(function(col){
+      var addr=col+row;
+      if(!ws[addr]) ws[addr]={v:'',t:'s'};
+      ws[addr].s = {
+        font:{name:'Calibri',sz:12},
+        alignment:{horizontal:'center',vertical:'center',wrapText:true,readingOrder:2},
+        border:BDR
+      };
+    });
+  }
+
+  // RTL
+  ws['!sheetView'] = [{rightToLeft:true}];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, filename, {bookType:'xlsx', type:'binary', cellStyles:true});
 }
+
 
 
 
