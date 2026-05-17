@@ -2198,6 +2198,8 @@ async function saveInventorySession(){
   document.getElementById('saveJardBtn').style.display='none';
   activeJardSession=null;
   alert('✅ تم حفظ جلسة الجرد بنجاح');
+  // انتظر 3 ثواني عشان Supabase يخلّص حفظ الجرد قبل ما Apps Script يسحبه
+  await new Promise(function(r){setTimeout(r,3000);});
   await syncToSheets();
 }
 
@@ -2322,6 +2324,7 @@ async function deleteInventorySession(sessionId){
   await sbSaveInventory();
   renderInventoryHistory();
   updateDeficitBadge();
+  await new Promise(function(r){setTimeout(r,3000);});
   await syncToSheets();
 }
 
