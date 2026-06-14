@@ -925,10 +925,12 @@ tbody tr:last-child td{border-bottom:none}
         <div class="card-body">
           <div class="search-row">
             <input class="search-input" id="movSearch" placeholder="🔍 بحث..." oninput="filterMovements()">
+            <select class="filter-select" id="movFYF" onchange="filterMovements()"></select>
             <select class="filter-select" id="movTypeF" onchange="filterMovements()">
               <option value="">الكل</option>
               <option value="صرف">📤 صرف</option>
               <option value="وارد">📥 وارد</option>
+              <option value="رصيد افتتاحي">🏦 رصيد افتتاحي</option>
             </select>
             <input type="month" class="filter-select" id="movMonthF" onchange="filterMovements()" style="direction:ltr">
             <select class="filter-select" id="movItemF" onchange="filterMovements()">
@@ -938,7 +940,7 @@ tbody tr:last-child td{border-bottom:none}
           <div class="tbl-wrap">
             <table>
               <thead><tr>
-                <th class="sortable" onclick="sortMovTable('serial')">#<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('type')">النوع<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('itemName')">الصنف<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('qty')">الكمية<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('docNo')">الإذن/فاتورة<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('party')">الجهة<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('staffName')">المسؤول<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('date')">التاريخ<span class="sort-icon"></span></th><th>ملاحظات</th><th></th>
+                <th class="sortable" onclick="sortMovTable('serial')">#<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('type')">النوع<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('itemName')">الصنف<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('qty')">الكمية<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('docNo')">الإذن/فاتورة<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('party')">الجهة<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('staffName')">المسؤول<span class="sort-icon"></span></th><th class="sortable" onclick="sortMovTable('date')">التاريخ<span class="sort-icon"></span></th><th>ملاحظات</th><th>الصلاحية</th><th></th>
               </tr></thead>
               <tbody id="movTbody"></tbody>
             </table>
@@ -965,7 +967,7 @@ tbody tr:last-child td{border-bottom:none}
             </div>
             <div class="fg">
               <label>الصنف *</label>
-              <select id="fMovItem" onchange="showStockHint()">
+              <select id="fMovItem" onchange="showStockHint();if(document.getElementById('fMovType').value==='صرف')fillExpirySelect(this.value)">
                 <option value="">— اختر الصنف —</option>
               </select>
             </div>
@@ -990,6 +992,17 @@ tbody tr:last-child td{border-bottom:none}
             <div class="fg">
               <label>التاريخ *</label>
               <input type="date" id="fMovDate" style="direction:ltr">
+            </div>
+            <!-- تاريخ الصلاحية — يظهر حسب نوع الحركة -->
+            <div class="fg" id="expiryDateWrap" style="display:none">
+              <label>تاريخ الصلاحية</label>
+              <input type="date" id="fMovExpiry" style="direction:ltr">
+            </div>
+            <div class="fg" id="expirySelectWrap" style="display:none">
+              <label>تاريخ الصلاحية</label>
+              <select id="fMovExpirySelect">
+                <option value="">— اختر تاريخ الصلاحية —</option>
+              </select>
             </div>
             <div class="fg span-all">
               <label>ملاحظات</label>
@@ -1209,6 +1222,28 @@ function syncFromSupabase() {
             <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBackup(event)">
             <button class="btn btn-red btn-sm" onclick="nukeData()">🗑️ مسح كل البيانات</button>
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">🔒 السنوات المالية وإغلاق الحركات</div></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:10px;line-height:1.8">
+            عند الضغط على زر "إغلاق السنة المالية"، سيتم:
+          </p>
+          <ul style="font-size:13px;color:var(--text2);margin:0 0 12px 0;padding-right:20px;line-height:1.9">
+            <li>أرشفة كل الحركات الحالية — تختفي من سجل الحركات (تبقى محفوظة في الأرشيف ويمكن استعراضها عبر فلتر السنة المالية).</li>
+            <li>ترحيل رصيد كل صنف كـ "🏦 رصيد افتتاحي" بتاريخ 1/7 — موزّع تلقائياً على تواريخ الصلاحية المسجّلة لكل صنف، بدون رقم فاتورة أو جهة استلام.</li>
+            <li>رصيد كل صنف يبقى كما هو تماماً — يمكنك الاستمرار في الصرف منه فوراً.</li>
+          </ul>
+          <div id="fyStatus" style="margin-bottom:12px;font-size:13px;color:var(--text2)"></div>
+          <button class="btn btn-red btn-sm" onclick="closeFiscalYear()">🔒 إغلاق السنة المالية الحالية وبدء سنة جديدة</button>
+
+          <div style="margin-top:16px;background:#1e2a4a;border:1px solid #c5d0f0;border-radius:8px;padding:14px;font-family:monospace;font-size:12px;color:#90caf9;direction:ltr;text-align:left;line-height:1.8;overflow-x:auto">
+            alter table movements add column if not exists archived boolean default false;<br>
+            alter table movements add column if not exists fiscal_year text default '';
+          </div>
+          <p style="font-size:12px;color:var(--text2);margin-top:8px">⚠️ شغّل كود SQL أعلاه مرة واحدة في Supabase (SQL Editor) قبل استخدام زر الإغلاق، لإضافة الأعمدة المطلوبة لجدول الحركات.</p>
         </div>
       </div>
     </div>
@@ -1466,6 +1501,7 @@ function syncFromSupabase() {
           <select id="emType" onchange="onEmTypeChange()">
             <option value="صرف">📤 صرف</option>
             <option value="وارد">📥 وارد</option>
+            <option value="رصيد افتتاحي">🏦 رصيد افتتاحي</option>
           </select>
         </div>
         <div class="fg">
@@ -1491,6 +1527,10 @@ function syncFromSupabase() {
         <div class="fg">
           <label>التاريخ *</label>
           <input type="date" id="emDate" style="direction:ltr">
+        </div>
+        <div class="fg">
+          <label>تاريخ الصلاحية</label>
+          <input type="date" id="emExpiry" style="direction:ltr">
         </div>
         <div class="fg span-all">
           <label>ملاحظات</label>
@@ -1603,13 +1643,7 @@ async function sbSaveItems(){
 }
 
 async function sbSaveMovement(mov){
-  await sbUpsert('movements',[{
-    id:mov.id,serial:mov.serial,type:mov.type,
-    item_id:mov.itemId,item_name:mov.itemName,
-    qty:mov.qty,doc_no:mov.docNo,
-    party:mov.party,staff_id:mov.staffId||'',
-    staff_name:mov.staffName,date:mov.date,notes:mov.notes||''
-  }]);
+  await sbUpsert('movements',[sbMovRow(mov)]);
 }
 
 async function sbSaveStaff(){
@@ -1625,39 +1659,17 @@ async function sbDeleteRow(table,id){
 async function sbSaveInventory(){
   // حفظ محلي دايماً كـ backup
   localStorage.setItem('rx_inventory',JSON.stringify(inventorySessions));
-  // حفظ على Supabase في جدولين:
-  // 1. app_settings كـ JSON (للقراءة السريعة)
-  // 2. inventory_sessions كسجلات منفصلة (للموثوقية)
+  // حفظ في app_settings فقط (اللي Apps Script بيقرأه)
   try{
-    // حفظ في app_settings
-    await sbUpsert('app_settings',[{
+    const r = await sbUpsert('app_settings',[{
       key:'inventory_sessions',
       value:JSON.stringify(inventorySessions)
     }]);
+    console.log('✅ sbSaveInventory OK, sessions count:', inventorySessions.length);
   }catch(e){
-    console.error('sbSaveInventory app_settings error:',e);
-  }
-  try{
-    // حفظ كل session كسجل منفصل في inventory_sessions
-    if(inventorySessions.length){
-      // أولاً امسح القديم
-      await fetch(SB_URL+'/rest/v1/inventory_sessions',{
-        method:'DELETE',
-        headers:{...sbHeaders(),'Accept':'application/json'}
-      }).catch(()=>{});
-      // ارفع الجديد
-      const rows=inventorySessions.map(s=>({
-        id:s.id,
-        data:JSON.stringify(s),
-        created_at:s.createdAt||new Date().toISOString()
-      }));
-      await sbUpsert('inventory_sessions',rows);
-    }
-  }catch(e){
-    // مش مشكلة لو inventory_sessions مش موجود
+    console.error('❌ sbSaveInventory error:',e);
   }
 }
-
 async function sbLoadInventory(){
   try{
     const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.inventory_sessions',{headers:sbHeaders()});
@@ -1767,7 +1779,9 @@ async function loadFromSupabase(){
       type:r.type,itemId:r.item_id,itemName:r.item_name,
       qty:parseFloat(r.qty)||0,docNo:r.doc_no,
       party:r.party,staffId:r.staff_id||'',staffName:r.staff_name,
-      date:r.date,notes:r.notes||'',
+      date:r.date,notes:r.notes||'',expiry:r.expiry||'',
+      archived: r.archived===true||r.archived==='true',
+      fiscalYear: r.fiscal_year||getFiscalYear(r.date),
       createdAt:r.created_at||new Date().toISOString()
     }));
     staff=sRows.map(r=>({
@@ -1775,6 +1789,11 @@ async function loadFromSupabase(){
       phone:r.phone||'',createdAt:r.created_at||new Date().toISOString()
     }));
     movCounter=movements.length>0?Math.max(...movements.map(m=>m.serial)):0;
+    // تحميل السنة المالية الحالية المحفوظة
+    try{
+      const cfy=await sbGetSetting('current_fiscal_year');
+      if(cfy) settings.currentFiscalYear=cfy;
+    }catch(e){}
     // تحميل الجرد من Supabase
     await sbLoadInventory();
     await sbLoadOrders();
@@ -1819,13 +1838,7 @@ async function sbSaveItems(){
 }
 
 async function sbSaveMovement(mov){
-  await sbUpsert('movements',[{
-    id:mov.id,serial:mov.serial,type:mov.type,
-    item_id:mov.itemId,item_name:mov.itemName,
-    qty:mov.qty,doc_no:mov.docNo,
-    party:mov.party,staff_id:mov.staffId||'',
-    staff_name:mov.staffName,date:mov.date,notes:mov.notes||''
-  }]);
+  await sbUpsert('movements',[sbMovRow(mov)]);
 }
 
 async function sbSaveStaff(){
@@ -1836,6 +1849,160 @@ async function sbSaveStaff(){
 
 async function sbDeleteRow(table,id){
   await sbDelete(table,id);
+}
+
+// ═══════════════════ السنوات المالية — الإغلاق والأرشفة ═══════════════════
+// السنة المالية المصرية: من 1/7 إلى 30/6. مثال: 1/7/2025 → 30/6/2026 = "2025/2026"
+function getFiscalYear(dateStr){
+  if(!dateStr) return '';
+  const d=new Date(dateStr);
+  if(isNaN(d.getTime())) return '';
+  const y=d.getFullYear(), m=d.getMonth()+1; // 1-12
+  return m>=7 ? (y+'/'+(y+1)) : ((y-1)+'/'+y);
+}
+
+// السنة المالية "الحالية" — يحفظها النظام بعد كل إغلاق، وإلا تُحسب من تاريخ اليوم
+function getCurrentFY(){
+  return (settings&&settings.currentFiscalYear) || getFiscalYear(new Date().toISOString().split('T')[0]);
+}
+
+// صف الحركة بصيغة Supabase
+function sbMovRow(mov){
+  return {
+    id:mov.id, serial:mov.serial, type:mov.type,
+    item_id:mov.itemId, item_name:mov.itemName,
+    qty:mov.qty, doc_no:mov.docNo||'',
+    party:mov.party||'', staff_id:mov.staffId||'',
+    staff_name:mov.staffName||'', date:mov.date,
+    notes:mov.notes||'', expiry:mov.expiry||'',
+    archived: mov.archived?true:false,
+    fiscal_year: mov.fiscalYear||getFiscalYear(mov.date)
+  };
+}
+
+// يحسب توزيع رصيد الصنف الحالي على دفعات (تواريخ صلاحية) بناءً على الحركات غير المؤرشفة
+// أي مبلغ غير مرتبط بتاريخ صلاحية معروف يوضع في دفعة "بدون تاريخ صلاحية" (expiry='')
+function computeItemBatches(item){
+  const batches={};
+  movements.filter(m=>m.itemId===item.id && !m.archived).forEach(m=>{
+    const exp=m.expiry||'';
+    if(!(exp in batches)) batches[exp]=0;
+    if(m.type==='صرف') batches[exp]-=m.qty;
+    else batches[exp]+=m.qty; // وارد / رصيد افتتاحي
+  });
+  delete batches[''];
+  let result=Object.keys(batches).filter(k=>batches[k]>0.0001).map(k=>({expiry:k,qty:batches[k]}));
+  const sumPositive=result.reduce((s,b)=>s+b.qty,0);
+  let remainder=item.stock-sumPositive;
+  if(remainder>0.0001){
+    result.push({expiry:'',qty:remainder});
+  } else if(remainder<-0.0001){
+    // تعديل دفاعي — إنقاص أكبر الدفعات لضمان أن الإجمالي = رصيد الصنف بالضبط
+    let toRemove=-remainder;
+    result.sort((a,b)=>b.qty-a.qty);
+    for(const b of result){
+      if(toRemove<=0)break;
+      const cut=Math.min(b.qty,toRemove);
+      b.qty-=cut; toRemove-=cut;
+    }
+    result=result.filter(b=>b.qty>0.0001);
+  }
+  result.forEach(b=>{b.qty=Math.round(b.qty*100)/100;});
+  result.sort((a,b)=>(a.expiry||'9999-99-99').localeCompare(b.expiry||'9999-99-99'));
+  return result;
+}
+
+// إغلاق السنة المالية الحالية: أرشفة كل الحركات (تختفي من السجل) وترحيل رصيد كل صنف
+// كـ "رصيد افتتاحي" موزّع على تواريخ الصلاحية، بدون أي فواتير استلام، مع بقاء الرصيد كما هو
+async function closeFiscalYear(){
+  if(RX_ROLE!=='admin'){alert('⚠️ هذا الإجراء للمدير فقط');return;}
+
+  const OLD_FY=getCurrentFY();
+  const yearParts=OLD_FY.split('/').map(Number);
+  const y2=yearParts[1];
+  if(!y2){alert('⚠️ تعذر تحديد السنة المالية الحالية');return;}
+  const CLOSE_DATE=y2+'-06-30';
+  const OPEN_DATE=y2+'-07-01';
+  const NEW_FY=y2+'/'+(y2+1);
+
+  if(movements.some(m=>m.fiscalYear===NEW_FY)){
+    alert('⚠️ تم تنفيذ إغلاق السنة المالية '+OLD_FY+' وبدء '+NEW_FY+' من قبل.');
+    return;
+  }
+
+  // 1) حساب توزيع أرصدة كل صنف على تواريخ الصلاحية — قبل أي تعديل على البيانات
+  const batchesByItem={};
+  let totalBatches=0;
+  items.forEach(item=>{
+    const b=computeItemBatches(item);
+    batchesByItem[item.id]=b;
+    totalBatches+=b.length;
+  });
+
+  const activeCount=movements.filter(m=>!m.archived).length;
+  let summary='سيتم إغلاق السنة المالية '+OLD_FY+' (بتاريخ '+CLOSE_DATE+') وبدء '+NEW_FY+':\n\n';
+  summary+='• أرشفة '+activeCount+' حركة — ستختفي من سجل الحركات الحالي (تبقى محفوظة في الأرشيف)\n';
+  summary+='• إنشاء '+totalBatches+' سجل "رصيد افتتاحي" بتاريخ '+OPEN_DATE+' موزّعة على تواريخ الصلاحية\n';
+  summary+='• رصيد كل صنف يبقى كما هو تماماً بدون أي تغيير\n\n';
+  summary+='هل تريد عرض تفاصيل الأرصدة الافتتاحية المقترحة قبل التنفيذ؟';
+  if(!confirm(summary))return;
+
+  let detail='تفاصيل الأرصدة الافتتاحية لسنة '+NEW_FY+' (بتاريخ '+OPEN_DATE+'):\n\n';
+  items.forEach(item=>{
+    const b=batchesByItem[item.id];
+    if(!b||!b.length)return;
+    detail+='▪ '+item.name+' (ص.'+item.page+') — إجمالي '+item.stock.toLocaleString()+' '+item.unit+'\n';
+    b.forEach(x=>{detail+='   - '+x.qty.toLocaleString()+' '+(x.expiry?('صلاحية '+x.expiry):'بدون تاريخ صلاحية محدد')+'\n';});
+  });
+  detail+='\n⚠️ هذا الإجراء لا يمكن التراجع عنه بسهولة. تأكيد التنفيذ النهائي؟';
+  if(!confirm(detail))return;
+
+  // 2) أرشفة كل الحركات الحالية (تختفي من السجل الجديد)
+  movements.forEach(m=>{
+    if(!m.fiscalYear) m.fiscalYear=getFiscalYear(m.date);
+    m.archived=true;
+  });
+
+  // 3) إنشاء سجلات "رصيد افتتاحي" — بدون رقم فاتورة أو جهة، موزّعة على تواريخ الصلاحية
+  const newEntries=[];
+  items.forEach(item=>{
+    (batchesByItem[item.id]||[]).forEach(b=>{
+      movCounter++;
+      newEntries.push({
+        id:'mov_'+Date.now()+'_'+movCounter+'_'+Math.floor(Math.random()*1000),
+        serial:movCounter, type:'رصيد افتتاحي',
+        itemId:item.id, itemName:item.name,
+        qty:b.qty, docNo:'', party:'',
+        staffId:'', staffName:'النظام',
+        date:OPEN_DATE,
+        notes:'رصيد افتتاحي مرحّل من نهاية السنة المالية '+OLD_FY,
+        expiry:b.expiry, archived:false, fiscalYear:NEW_FY,
+        createdAt:new Date().toISOString()
+      });
+    });
+  });
+
+  movements=movements.concat(newEntries);
+  save();
+
+  // 4) حفظ على Supabase (على دفعات لتجنّب أي حد لحجم الطلب)
+  showLoader('جاري حفظ الإغلاق وترحيل الأرصدة...','🔒');
+  try{
+    const allRows=movements.map(sbMovRow);
+    for(let i=0;i<allRows.length;i+=200){
+      await sbUpsert('movements',allRows.slice(i,i+200));
+    }
+    settings.currentFiscalYear=NEW_FY;
+    await sbSetSetting('current_fiscal_year',NEW_FY);
+  }catch(e){
+    console.error('closeFiscalYear save error:',e);
+    alert('⚠️ تم التنفيذ محلياً، لكن حدث خطأ أثناء الحفظ على قاعدة البيانات.\nتحقق من الاتصال وأعد المزامنة من الإعدادات.');
+  }
+  hideLoader();
+
+  renderAll();
+  alert('✅ تم إغلاق السنة المالية '+OLD_FY+' بنجاح\nوبدأت السنة المالية '+NEW_FY+' بـ '+newEntries.length+' سجل رصيد افتتاحي موزّع على تواريخ الصلاحية.');
+  await syncToSheets();
 }
 
 function seedItems(){
@@ -1898,11 +2065,12 @@ function renderAll(){
   if(document.getElementById('orderTbody')) renderOrderTable();
   if(document.getElementById('ordersArchive')) renderOrdersArchive();
   renderItemsTable();
-  renderMovTable();
   renderStaff();
   renderInventoryHistory();
   renderAvg();
   fillSelects();
+  filterMovements();
+  renderFYStatus();
   updateDeficitBadge();
 }
 
@@ -2043,23 +2211,28 @@ function filterItems(){
 // ═══════════════════ MOVEMENTS TABLE ═══════════════════
 function renderMovTable(data){
   const list=applyMovSort(data?[...data]:[...movements]);
-  document.getElementById('movTbody').innerHTML=list.length?list.map(m=>`<tr>
+  document.getElementById('movTbody').innerHTML=list.length?list.map(m=>{
+    const isOpen=m.type==='رصيد افتتاحي';
+    const badgeClass=m.type==='صرف'?'badge-red':isOpen?'badge-purple':'badge-green';
+    const icon=m.type==='صرف'?'📤':isOpen?'🏦':'📥';
+    return `<tr>
     <td><strong style="color:var(--teal)">#${m.serial}</strong></td>
-    <td><span class="badge ${m.type==='صرف'?'badge-red':'badge-green'}">${m.type==='صرف'?'📤':'📥'} ${m.type}</span></td>
+    <td><span class="badge ${badgeClass}">${icon} ${m.type}</span></td>
     <td>${m.itemName}</td>
     <td><strong>${m.qty.toLocaleString()}</strong></td>
-    <td><code style="font-size:11px;color:var(--text2)">${m.docNo}</code></td>
-    <td>${m.party}</td>
+    <td><code style="font-size:11px;color:var(--text2)">${m.docNo||'—'}</code></td>
+    <td>${m.party||'—'}</td>
     <td><span class="chip">👤 ${m.staffName}</span></td>
     <td style="color:var(--text2)">${fmt(m.date)}</td>
     <td style="color:var(--text3);font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${m.notes||'—'}</td>
+    <td style="font-size:12px;color:var(--amber)">${m.expiry||'—'}</td>
     <td>
       <div style="display:flex;gap:4px">
         <button class="btn btn-icon btn-amber btn-sm" onclick="openEditMov('${m.id}')" title="تعديل">✏️</button>
         <button class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="deleteMov('${m.id}')" title="حذف">🗑</button>
       </div>
     </td>
-  </tr>`).join(''):`<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div>لا توجد حركات</div></td></tr>`;
+  </tr>`;}).join(''):`<tr><td colspan="11"><div class="empty"><div class="empty-icon">📋</div>لا توجد حركات</div></td></tr>`;
 }
 
 function filterMovements(){
@@ -2067,7 +2240,10 @@ function filterMovements(){
   const t=document.getElementById('movTypeF').value;
   const mn=document.getElementById('movMonthF').value;
   const it=document.getElementById('movItemF').value;
+  const fySel=document.getElementById('movFYF');
+  const fy=fySel?fySel.value:'';
   let list=movements;
+  if(fy&&fy!=='all')list=list.filter(m=>(m.fiscalYear||getFiscalYear(m.date))===fy);
   if(q)list=list.filter(m=>m.itemName.toLowerCase().includes(q)||m.docNo.toLowerCase().includes(q)||m.party.toLowerCase().includes(q)||m.staffName.toLowerCase().includes(q));
   if(t)list=list.filter(m=>m.type===t);
   if(mn)list=list.filter(m=>m.date.startsWith(mn));
@@ -2075,11 +2251,75 @@ function filterMovements(){
   renderMovTable(list);
 }
 
+// يملأ قائمة السنوات المالية — السنة الحالية أولاً، ثم الأرشيف الأحدث فالأقدم
+function fillFYSelect(){
+  const sel=document.getElementById('movFYF');
+  if(!sel)return;
+  const cur=sel.value;
+  const curFY=getCurrentFY();
+  const fySet=new Set(movements.map(m=>m.fiscalYear||getFiscalYear(m.date)).filter(Boolean));
+  fySet.add(curFY);
+  const fys=[...fySet].sort().reverse();
+  sel.innerHTML=fys.map(fy=>`<option value="${fy}">${fy===curFY?'📅 السنة الحالية '+fy:'🗄️ أرشيف '+fy}</option>`).join('')
+    +'<option value="all">كل السنوات</option>';
+  sel.value=(cur&&(fys.includes(cur)||cur==='all'))?cur:curFY;
+}
+
+// يعرض حالة السنة المالية في صفحة الإعدادات
+function renderFYStatus(){
+  const el=document.getElementById('fyStatus');
+  if(!el)return;
+  const curFY=getCurrentFY();
+  const activeCount=movements.filter(m=>!m.archived).length;
+  const archivedCount=movements.filter(m=>m.archived).length;
+  el.innerHTML='السنة المالية الحالية: <strong style="color:var(--teal)">'+curFY+'</strong>'
+    +' — حركات نشطة: <strong>'+activeCount.toLocaleString()+'</strong>'
+    +(archivedCount?' — حركات مؤرشفة: <strong>'+archivedCount.toLocaleString()+'</strong>':'');
+}
+
 // ═══════════════════ ADD MOVEMENT ═══════════════════
 function onMovTypeChange(){
   const t=document.getElementById('fMovType').value;
   document.getElementById('fDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
   document.getElementById('fPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
+  // تاريخ الصلاحية
+  const dateWrap=document.getElementById('expiryDateWrap');
+  const selWrap=document.getElementById('expirySelectWrap');
+  if(t==='وارد'){
+    // وارد: calendar لإضافة تاريخ جديد
+    if(dateWrap) dateWrap.style.display='block';
+    if(selWrap) selWrap.style.display='none';
+  } else {
+    // صرف: dropdown من التواريخ المضافة سابقاً
+    if(dateWrap) dateWrap.style.display='none';
+    if(selWrap){
+      selWrap.style.display='block';
+      fillExpirySelect(document.getElementById('fMovItem').value);
+    }
+  }
+}
+
+function fillExpirySelect(itemId){
+  const sel=document.getElementById('fMovExpirySelect');
+  if(!sel) return;
+  // اجمع كل تواريخ الصلاحية للصنف ده من الحركات الواردة + الأرصدة الافتتاحية (غير المؤرشفة)
+  const dates=[...new Set(
+    movements
+      .filter(m=>m.itemId===itemId&&(m.type==='وارد'||m.type==='رصيد افتتاحي')&&m.expiry&&!m.archived)
+      .map(m=>m.expiry)
+      .sort()
+  )];
+  sel.innerHTML='<option value="">— اختر تاريخ الصلاحية —</option>';
+  dates.forEach(function(d){
+    const opt=document.createElement('option');
+    opt.value=d;
+    opt.textContent=d;
+    sel.appendChild(opt);
+  });
+  // لو مفيش تواريخ
+  if(!dates.length){
+    sel.innerHTML='<option value="">لا توجد تواريخ صلاحية مسجلة لهذا الصنف</option>';
+  }
 }
 
 function showStockHint(){
@@ -2093,7 +2333,8 @@ function showStockHint(){
 }
 
 function clearMovForm(){
-  ['fMovItem','fMovQty','fMovDoc','fMovParty','fMovNotes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['fMovItem','fMovQty','fMovDoc','fMovParty','fMovNotes','fMovExpiry'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  const esel=document.getElementById('fMovExpirySelect');if(esel)esel.selectedIndex=0;
   document.getElementById('fMovDate').value=new Date().toISOString().split('T')[0];
   document.getElementById('stockHint').style.display='none';
   document.getElementById('movFormAlert').innerHTML='';
@@ -2119,8 +2360,16 @@ async function saveMovement(){
     alertEl.innerHTML=`<div class="alert alert-amber">⚠️ الكمية (${qty}) أكبر من الرصيد الحالي (${item.stock}). هل تريد المتابعة؟ سيصبح الرصيد سالباً.</div>`;
   }
   movCounter++;
+  // تاريخ الصلاحية
+  let expiry='';
+  if(type==='وارد'){
+    expiry=document.getElementById('fMovExpiry').value||'';
+  } else {
+    expiry=document.getElementById('fMovExpirySelect').value||'';
+  }
   const mov={id:'mov_'+Date.now(),serial:movCounter,type,itemId,itemName:item.name,
-    qty,docNo,party,staffId,staffName:staffMem.name,date,notes,createdAt:new Date().toISOString()};
+    qty,docNo,party,staffId,staffName:staffMem.name,date,notes,expiry,
+    archived:false,fiscalYear:getFiscalYear(date),createdAt:new Date().toISOString()};
   movements.push(mov);
   if(type==='صرف') item.stock-=qty; else item.stock+=qty;
   save();
@@ -2198,9 +2447,9 @@ async function saveInventorySession(){
   document.getElementById('saveJardBtn').style.display='none';
   activeJardSession=null;
   alert('✅ تم حفظ جلسة الجرد بنجاح');
-  // انتظر 3 ثواني عشان Supabase يخلّص حفظ الجرد قبل ما Apps Script يسحبه
-  await new Promise(function(r){setTimeout(r,3000);});
-  await syncToSheets();
+  // مزامنة الجرد مباشرة بدون cooldown
+  await new Promise(function(r){setTimeout(r,4000);});
+  await _forceSyncToSheets();
 }
 
 /* ── DEFICIT ANALYSIS ── */
@@ -2324,8 +2573,8 @@ async function deleteInventorySession(sessionId){
   await sbSaveInventory();
   renderInventoryHistory();
   updateDeficitBadge();
-  await new Promise(function(r){setTimeout(r,3000);});
-  await syncToSheets();
+  await new Promise(function(r){setTimeout(r,4000);});
+  await _forceSyncToSheets();
 }
 
 function showJardDetail(idx){
@@ -2541,6 +2790,7 @@ function quick(itemId,type){
 
 // ═══════════════════ FILL SELECTS ═══════════════════
 function fillSelects(){
+  fillFYSelect();
   const sorted=[...items].sort((a,b)=>a.page-b.page);
   const opts=sorted.map(i=>`<option value="${i.id}">${i.page} — ${i.name}</option>`).join('');
   ['fMovItem'].forEach(id=>{const e=document.getElementById(id);if(!e)return;const v=e.value;e.innerHTML=`<option value="">— اختر الصنف —</option>`+opts;e.value=v;});
@@ -2570,21 +2820,44 @@ async function syncAll(){
 
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
+let _lastSyncTime = 0;
+
+// مزامنة عادية مع cooldown — للحركات والأصناف
 async function syncToSheets(){
   if(!gsUrl) return;
+  const now = Date.now();
+  if(now - _lastSyncTime < 5000) return;
+  _lastSyncTime = now;
   const lbl=document.getElementById('gsLabel2');
   const dot=document.getElementById('gsDot2');
   const msg=document.getElementById('gsMsg');
   if(lbl){ lbl.textContent='📊 جاري المزامنة...'; lbl.style.color='rgba(255,255,255,0.7)'; }
   if(dot){ dot.style.background='#f0a500'; }
   try{
-    // GET بسيط — Apps Script يسحب من Supabase
     const url = gsUrl + (gsUrl.includes('?')?'&':'?') + 't=' + Date.now();
     await fetch(url, {method:'GET', mode:'no-cors', cache:'no-store'});
   }catch(e){}
   if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#fff'; }
   if(dot){ dot.style.background='#34a853'; }
   if(msg){ msg.textContent='✅ '+new Date().toLocaleTimeString('ar-EG'); }
+}
+
+// مزامنة إجبارية بدون cooldown — للجرد فقط
+async function _forceSyncToSheets(){
+  if(!gsUrl) return;
+  _lastSyncTime = Date.now(); // update الـ cooldown عشان الحركات التالية ما تكررش
+  const lbl=document.getElementById('gsLabel2');
+  const dot=document.getElementById('gsDot2');
+  const msg=document.getElementById('gsMsg');
+  if(lbl){ lbl.textContent='📊 جاري مزامنة الجرد...'; lbl.style.color='rgba(255,255,255,0.7)'; }
+  if(dot){ dot.style.background='#f0a500'; }
+  try{
+    const url = gsUrl + (gsUrl.includes('?')?'&':'?') + 't=' + Date.now();
+    await fetch(url, {method:'GET', mode:'no-cors', cache:'no-store'});
+  }catch(e){}
+  if(lbl){ lbl.textContent='📊 Sheets محدّث ✓'; lbl.style.color='#fff'; }
+  if(dot){ dot.style.background='#34a853'; }
+  if(msg){ msg.textContent='✅ الجرد متزامن — '+new Date().toLocaleTimeString('ar-EG'); }
 }
 
 // pushMovToGS removed — using Supabase
@@ -2660,18 +2933,21 @@ function exportMovXLS(){
   const t=document.getElementById('movTypeF').value;
   const mn=document.getElementById('movMonthF').value;
   const it=document.getElementById('movItemF').value;
+  const fySel=document.getElementById('movFYF');
+  const fy=fySel?fySel.value:'';
   let list=[...movements];
+  if(fy&&fy!=='all') list=list.filter(m=>(m.fiscalYear||getFiscalYear(m.date))===fy);
   if(q) list=list.filter(m=>m.itemName.toLowerCase().includes(q)||m.docNo.toLowerCase().includes(q)||m.party.toLowerCase().includes(q)||m.staffName.toLowerCase().includes(q));
   if(t) list=list.filter(m=>m.type===t);
   if(mn) list=list.filter(m=>m.date.startsWith(mn));
   if(it) list=list.filter(m=>m.itemId===it);
   list.sort((a,b)=>a.serial-b.serial);
-  const rows=[['#','النوع','الصنف','صفحة','الكمية','الإذن/فاتورة','الجهة','المسؤول','التاريخ','ملاحظات']];
+  const rows=[['#','النوع','الصنف','صفحة','الكمية','الإذن/فاتورة','الجهة','المسؤول','التاريخ','تاريخ الصلاحية','ملاحظات']];
   list.forEach(m=>{
     const pg=items.find(i=>i.id===m.itemId)?.page||'';
-    rows.push([m.serial,m.type,m.itemName,pg,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||'']);
+    rows.push([m.serial,m.type,m.itemName,pg,m.qty,m.docNo,m.party,m.staffName,m.date,m.expiry||'',m.notes||'']);
   });
-  const suffix=it?(items.find(i=>i.id===it)?.name||''):(mn||'الكل');
+  const suffix=it?(items.find(i=>i.id===it)?.name||''):(mn||fy||'الكل');
   toXLS(rows,'الحركات_'+suffix+'_'+new Date().toISOString().split('T')[0]);
 }
 
@@ -2726,7 +3002,10 @@ function exportMovPDF(){
   const t=document.getElementById('movTypeF').value;
   const mn=document.getElementById('movMonthF').value;
   const it=document.getElementById('movItemF').value;
+  const fySel=document.getElementById('movFYF');
+  const fy=fySel?fySel.value:'';
   let list=[...movements];
+  if(fy&&fy!=='all') list=list.filter(m=>(m.fiscalYear||getFiscalYear(m.date))===fy);
   if(q) list=list.filter(m=>m.itemName.toLowerCase().includes(q)||m.docNo.toLowerCase().includes(q)||m.party.toLowerCase().includes(q)||m.staffName.toLowerCase().includes(q));
   if(t) list=list.filter(m=>m.type===t);
   if(mn) list=list.filter(m=>m.date.startsWith(mn));
@@ -2850,6 +3129,7 @@ function openEditMov(movId){
   document.getElementById('emDoc').value=mov.docNo;
   document.getElementById('emParty').value=mov.party;
   document.getElementById('emDate').value=mov.date;
+  document.getElementById('emExpiry').value=mov.expiry||'';
   document.getElementById('emNotes').value=mov.notes||'';
   // تعبئة قائمة الأصناف
   const sortedItems=[...items].sort((a,b)=>a.page-b.page);
@@ -2864,8 +3144,13 @@ function openEditMov(movId){
 
 function onEmTypeChange(){
   const t=document.getElementById('emType').value;
-  document.getElementById('emDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
-  document.getElementById('emPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
+  if(t==='رصيد افتتاحي'){
+    document.getElementById('emDocLabel').textContent='رقم مرجعي (اختياري)';
+    document.getElementById('emPartyLabel').textContent='ملاحظة (اختياري)';
+  } else {
+    document.getElementById('emDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
+    document.getElementById('emPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
+  }
 }
 
 async function saveEditMov(){
@@ -2879,8 +3164,10 @@ async function saveEditMov(){
   const newParty=document.getElementById('emParty').value.trim();
   const newStaffId=document.getElementById('emStaff').value;
   const newDate=document.getElementById('emDate').value;
+  const newExpiry=document.getElementById('emExpiry').value||'';
   const newNotes=document.getElementById('emNotes').value.trim();
-  if(!newQty||!newDoc||!newParty||!newDate){alert('يرجى تعبئة الحقول المطلوبة');return;}
+  if(!newQty||!newDate){alert('يرجى تعبئة الحقول المطلوبة');return;}
+  if(newType!=='رصيد افتتاحي'&&(!newDoc||!newParty)){alert('يرجى تعبئة الحقول المطلوبة');return;}
   // تراجع عن أثر الحركة القديمة على الرصيد
   const oldItem=items.find(i=>i.id===mov.itemId);
   if(oldItem){
@@ -2904,6 +3191,8 @@ async function saveEditMov(){
   mov.staffId=newStaffId;
   mov.staffName=staffMem?staffMem.name:mov.staffName;
   mov.date=newDate;
+  mov.expiry=newExpiry;
+  mov.fiscalYear=getFiscalYear(newDate);
   mov.notes=newNotes;
   save();
   await sbSaveMovement(mov);
@@ -2923,7 +3212,11 @@ function confirmDeleteMov(){
 async function deleteMov(movId){
   const mov=movements.find(m=>m.id===movId);
   if(!mov)return;
-  if(!confirm('حذف الحركة #'+mov.serial+' ('+mov.type+' '+mov.qty+' '+mov.itemName+')؟'))return;
+  if(mov.type==='رصيد افتتاحي'){
+    if(!confirm('⚠️ هذه دفعة "رصيد افتتاحي" مرحّلة من السنة المالية السابقة (صلاحية: '+(mov.expiry||'بدون تاريخ')+').\nحذفها سيقلل رصيد "'+mov.itemName+'" الحالي بمقدار '+mov.qty.toLocaleString()+'.\nهل أنت متأكد؟'))return;
+  } else {
+    if(!confirm('حذف الحركة #'+mov.serial+' ('+mov.type+' '+mov.qty+' '+mov.itemName+')؟'))return;
+  }
   // تراجع عن أثر الحركة على الرصيد
   const item=items.find(i=>i.id===mov.itemId);
   if(item){
@@ -3698,6 +3991,7 @@ function applyGuestMode(){
     'button[onclick*="saveInventory"]',
     'button[onclick*="delStaff"]',
     'button[onclick*="nukeData"]',
+    'button[onclick*="closeFiscalYear"]',
     'button[onclick*="saveSettings"]'
   ];
   writeSelectors.forEach(function(sel){
