@@ -485,7 +485,7 @@ tbody tr:last-child td{border-bottom:none}
   visibility:visible;
 }
 .auth-form-inner { width:100%;text-align:center; }
-.auth-form-inner img { width:90px;margin-bottom:10px; }
+.auth-form-inner img { width:100%;max-width:320px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto; }
 .auth-form-inner h2 { font-size:22px;color:#1a1a2e;margin-bottom:4px; }
 .auth-form-inner p.auth-sub { font-size:12px;color:#888;margin-bottom:20px; }
 .auth-input-wrap {
@@ -973,7 +973,7 @@ tbody tr:last-child td{border-bottom:none}
             </div>
             <div class="fg">
               <label>الكمية *</label>
-              <input type="number" id="fMovQty" min="1" placeholder="0">
+              <input type="number" id="fMovQty" min="1" placeholder="0" oninput="recalcDistribution()">
             </div>
             <div class="fg">
               <label id="fDocLabel">رقم إذن الصرف *</label>
@@ -996,14 +996,20 @@ tbody tr:last-child td{border-bottom:none}
             <!-- تاريخ الصلاحية — يظهر حسب نوع الحركة -->
             <div class="fg" id="expiryDateWrap" style="display:none">
               <label>تاريخ الصلاحية</label>
-              <input type="date" id="fMovExpiry" style="direction:ltr">
+              <input type="date" id="fMovExpiry" style="direction:ltr" oninput="recalcInBatches()">
+            </div>
+            <!-- دفعات إضافية عند الاستلام (لو استلمت في نفس الإذن كميات بتواريخ مختلفة) -->
+            <div class="fg span-all" id="inBatchesContainer" style="display:none"></div>
+            <div class="fg span-all" id="addInBatchWrap" style="display:none;margin-top:-4px">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="addInBatchRow()">➕ إضافة تاريخ صلاحية آخر</button>
             </div>
             <div class="fg" id="expirySelectWrap" style="display:none">
-              <label>تاريخ الصلاحية</label>
-              <select id="fMovExpirySelect">
-                <option value="">— اختر تاريخ الصلاحية —</option>
+              <label>صرف من (تاريخ / دفعة) *</label>
+              <select id="fMovExpirySelect" onchange="showBatchHint();recalcDistribution()">
+                <option value="">— اختر —</option>
               </select>
             </div>
+            <div class="fg span-all" id="extraBatchesContainer" style="display:none"></div>
             <div class="fg span-all">
               <label>ملاحظات</label>
               <textarea id="fMovNotes" rows="2" placeholder="أي ملاحظات إضافية..."></textarea>
@@ -1011,6 +1017,9 @@ tbody tr:last-child td{border-bottom:none}
           </div>
           <div id="stockHint" style="display:none;margin-top:12px">
             <div class="alert alert-blue">📦 الرصيد الحالي: <strong id="stockHintVal">—</strong></div>
+          </div>
+          <div id="batchHint" style="display:none;margin-top:8px">
+            <div class="alert alert-blue">📌 رصيد الدفعة المختارة: <strong id="batchHintVal">—</strong></div>
           </div>
           <div style="display:flex;gap:8px;margin-top:16px">
             <button class="btn btn-teal" onclick="saveMovement()">💾 تسجيل الحركة</button>
@@ -1506,13 +1515,13 @@ function syncFromSupabase() {
         </div>
         <div class="fg">
           <label>الصنف</label>
-          <select id="emItem"></select>
+          <select id="emItem" onchange="onEmItemChange()"></select>
         </div>
-        <div class="fg">
+        <div class="fg" id="emSingleQtyWrap">
           <label>الكمية *</label>
           <input type="number" id="emQty" min="1">
         </div>
-        <div class="fg">
+        <div class="fg" id="emDocWrap">
           <label id="emDocLabel">رقم الإذن/الفاتورة *</label>
           <input type="text" id="emDoc">
         </div>
@@ -1528,9 +1537,14 @@ function syncFromSupabase() {
           <label>التاريخ *</label>
           <input type="date" id="emDate" style="direction:ltr">
         </div>
-        <div class="fg">
-          <label>تاريخ الصلاحية</label>
-          <input type="date" id="emExpiry" style="direction:ltr">
+        <div class="fg" id="emSingleExpiryWrap">
+          <label>تاريخ الصلاحية / الدفعة</label>
+          <select id="emExpirySelect"></select>
+        </div>
+        <div class="fg span-all" id="emBatchesWrap" style="display:none">
+          <label>الدفعات (هذه الحركة موزَّعة على أكثر من تاريخ/دفعة)</label>
+          <div id="emBatchesList"></div>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="addEmBatchRow()">➕ إضافة دفعة</button>
         </div>
         <div class="fg span-all">
           <label>ملاحظات</label>
@@ -1783,6 +1797,9 @@ async function loadFromSupabase(){
       archived: r.archived===true||r.archived==='true',
       fiscalYear: r.fiscal_year||getFiscalYear(r.date),
       createdAt:r.created_at||new Date().toISOString()
+      // ملاحظة: groupId (لربط أجزاء حركة موزَّعة على عدة دفعات) لا يُحفظ في Supabase ولا يُعاد بناؤه هنا عمداً،
+      // لتجنّب خطر دمج حركات غير مرتبطة تحت مفتاح واحد بالغلط. الحذف الجماعي للأجزاء يعمل فقط ضمن نفس الجلسة
+      // التي تم فيها تسجيل الحركة الموزَّعة؛ بعد إعادة تحميل الصفحة يتم حذف كل سطر/دفعة بشكل مستقل وآمن.
     }));
     staff=sRows.map(r=>({
       id:r.id,name:r.name,role:r.role||'صيدلاني',
@@ -2208,28 +2225,55 @@ function filterItems(){
   renderItemsTable(list);
 }
 
+// يجمع أجزاء أي حركة منطقية واحدة موزَّعة على دفعات متعددة (نفس serial+itemId+type) في سجل واحد
+// بالإجمالي، مع الاحتفاظ بتفاصيل كل دفعة (تاريخ/كمية) في parts. يُستخدم في كل أماكن عرض/تصدير الحركات
+// لضمان ظهور إجمالي الكمية المصروفة فعلياً بدلاً من كل جزء منفصل.
+function groupMovementsForDisplay(list){
+  const groups=[];
+  const indexMap={};
+  list.forEach(m=>{
+    const key=m.serial+'|'+m.itemId+'|'+m.type;
+    if(indexMap[key]===undefined){
+      indexMap[key]=groups.length;
+      groups.push({...m,parts:[{expiry:m.expiry,qty:m.qty,id:m.id}],qty:m.qty,_ids:[m.id]});
+    } else {
+      const g=groups[indexMap[key]];
+      g.parts.push({expiry:m.expiry,qty:m.qty,id:m.id});
+      g.qty+=m.qty;
+      g._ids.push(m.id);
+    }
+  });
+  return groups;
+}
+
 // ═══════════════════ MOVEMENTS TABLE ═══════════════════
 function renderMovTable(data){
   const list=applyMovSort(data?[...data]:[...movements]);
-  document.getElementById('movTbody').innerHTML=list.length?list.map(m=>{
+  const groups=groupMovementsForDisplay(list);
+  document.getElementById('movTbody').innerHTML=groups.length?groups.map(m=>{
     const isOpen=m.type==='رصيد افتتاحي';
     const badgeClass=m.type==='صرف'?'badge-red':isOpen?'badge-purple':'badge-green';
     const icon=m.type==='صرف'?'📤':isOpen?'🏦':'📥';
+    const multi=m.parts.length>1;
+    const expiryCell=multi
+      ?`<span title="موزَّعة على ${m.parts.length} دفعات">${m.parts.map(p=>(p.expiry||'بدون تاريخ')+' ('+p.qty.toLocaleString()+')').join('، ')}</span>`
+      :`${m.expiry||'—'}`;
+    const delTarget=multi?m._ids.join(','):m.id;
     return `<tr>
     <td><strong style="color:var(--teal)">#${m.serial}</strong></td>
     <td><span class="badge ${badgeClass}">${icon} ${m.type}</span></td>
     <td>${m.itemName}</td>
-    <td><strong>${m.qty.toLocaleString()}</strong></td>
+    <td><strong>${m.qty.toLocaleString()}</strong>${multi?' <span class="chip" style="font-size:10px">مجمّعة</span>':''}</td>
     <td><code style="font-size:11px;color:var(--text2)">${m.docNo||'—'}</code></td>
     <td>${m.party||'—'}</td>
     <td><span class="chip">👤 ${m.staffName}</span></td>
     <td style="color:var(--text2)">${fmt(m.date)}</td>
     <td style="color:var(--text3);font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${m.notes||'—'}</td>
-    <td style="font-size:12px;color:var(--amber)">${m.expiry||'—'}</td>
+    <td style="font-size:12px;color:var(--amber)">${expiryCell}</td>
     <td>
       <div style="display:flex;gap:4px">
         <button class="btn btn-icon btn-amber btn-sm" onclick="openEditMov('${m.id}')" title="تعديل">✏️</button>
-        <button class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="deleteMov('${m.id}')" title="حذف">🗑</button>
+        <button class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="deleteMovGroup('${delTarget}')" title="حذف">🗑</button>
       </div>
     </td>
   </tr>`;}).join(''):`<tr><td colspan="11"><div class="empty"><div class="empty-icon">📋</div>لا توجد حركات</div></td></tr>`;
@@ -2282,16 +2326,18 @@ function onMovTypeChange(){
   const t=document.getElementById('fMovType').value;
   document.getElementById('fDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
   document.getElementById('fPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
-  // تاريخ الصلاحية
   const dateWrap=document.getElementById('expiryDateWrap');
   const selWrap=document.getElementById('expirySelectWrap');
+  const addInBtn=document.getElementById('addInBatchWrap');
+  const ibc=document.getElementById('inBatchesContainer');
   if(t==='وارد'){
-    // وارد: calendar لإضافة تاريخ جديد
     if(dateWrap) dateWrap.style.display='block';
     if(selWrap) selWrap.style.display='none';
+    if(addInBtn) addInBtn.style.display='block';
   } else {
-    // صرف: dropdown من التواريخ المضافة سابقاً
     if(dateWrap) dateWrap.style.display='none';
+    if(addInBtn) addInBtn.style.display='none';
+    if(ibc){ibc.innerHTML='';ibc.style.display='none';}
     if(selWrap){
       selWrap.style.display='block';
       fillExpirySelect(document.getElementById('fMovItem').value);
@@ -2299,27 +2345,216 @@ function onMovTypeChange(){
   }
 }
 
+// ═══════════════════ IN-BATCHES (وارد بتواريخ متعددة) ═══════════════════
+function inBatchRowHtml(idx,qty,expiry){
+  return `<div class="form-grid" data-inbatch="${idx}" style="margin-bottom:6px;align-items:end">
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">الكمية *</label>
+      <input type="number" min="1" class="in-batch-qty" value="${qty||''}" placeholder="0" oninput="recalcInBatches()">
+    </div>
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">تاريخ الصلاحية</label>
+      <input type="date" class="in-batch-expiry" style="direction:ltr" value="${expiry||''}">
+    </div>
+    <div class="fg" style="margin:0">
+      <button type="button" class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="this.closest('[data-inbatch]').remove();recalcInBatches()" title="حذف هذه الدفعة">🗑</button>
+    </div>
+  </div>`;
+}
+
+function addInBatchRow(){
+  const ibc=document.getElementById('inBatchesContainer');
+  ibc.style.display='block';
+  const idx=ibc.children.length;
+  ibc.insertAdjacentHTML('beforeend',inBatchRowHtml(idx,0,''));
+  recalcInBatches();
+}
+
+// لو فيه صفوف إضافية: يحسب إجمالي الكميات (الأساسية + كل الصفوف) ويظهره في fMovQty كقراءة فقط
+function recalcInBatches(){
+  const ibc=document.getElementById('inBatchesContainer');
+  const rows=[...ibc.querySelectorAll('[data-inbatch]')];
+  if(!rows.length) return;
+  const mainQty=parseFloat(document.getElementById('fMovQty').value)||0;
+  const extraTotal=rows.reduce((s,r)=>{
+    return s+(parseFloat(r.querySelector('.in-batch-qty').value)||0);
+  },0);
+  const total=mainQty+extraTotal;
+  // عرض الإجمالي كتلميح بجانب الحقل
+  let hint=document.getElementById('inBatchTotalHint');
+  if(!hint){
+    hint=document.createElement('div');
+    hint.id='inBatchTotalHint';
+    hint.style.cssText='margin-top:6px;font-size:12px;color:var(--teal);font-weight:600';
+    ibc.parentNode.insertBefore(hint,ibc.nextSibling);
+  }
+  const item=items.find(i=>i.id===document.getElementById('fMovItem').value);
+  hint.textContent=total>0?`📦 إجمالي الاستلام: ${total.toLocaleString()} ${item?item.unit:''}  (الأساسية: ${mainQty.toLocaleString()} + إضافية: ${extraTotal.toLocaleString()})` : '';
+}
+
+// يجمع كل دفعات الاستلام (الأساسية + الإضافية) في مصفوفة [{qty, expiry}]
+function getInBatches(){
+  const mainQty=parseFloat(document.getElementById('fMovQty').value)||0;
+  const mainExpiry=document.getElementById('fMovExpiry').value||'';
+  const parts=[];
+  if(mainQty>0) parts.push({qty:mainQty,expiry:mainExpiry});
+  const ibc=document.getElementById('inBatchesContainer');
+  const rows=[...ibc.querySelectorAll('[data-inbatch]')];
+  rows.forEach(r=>{
+    const q=parseFloat(r.querySelector('.in-batch-qty').value)||0;
+    const exp=r.querySelector('.in-batch-expiry').value||'';
+    if(q>0) parts.push({qty:q,expiry:exp});
+  });
+  return parts;
+}
+
 function fillExpirySelect(itemId){
   const sel=document.getElementById('fMovExpirySelect');
   if(!sel) return;
-  // اجمع كل تواريخ الصلاحية للصنف ده من الحركات الواردة + الأرصدة الافتتاحية (غير المؤرشفة)
-  const dates=[...new Set(
-    movements
-      .filter(m=>m.itemId===itemId&&(m.type==='وارد'||m.type==='رصيد افتتاحي')&&m.expiry&&!m.archived)
-      .map(m=>m.expiry)
-      .sort()
-  )];
-  sel.innerHTML='<option value="">— اختر تاريخ الصلاحية —</option>';
-  dates.forEach(function(d){
-    const opt=document.createElement('option');
-    opt.value=d;
-    opt.textContent=d;
-    sel.appendChild(opt);
-  });
-  // لو مفيش تواريخ
-  if(!dates.length){
-    sel.innerHTML='<option value="">لا توجد تواريخ صلاحية مسجلة لهذا الصنف</option>';
+  const item=items.find(i=>i.id===itemId);
+  if(!item){
+    sel.innerHTML='<option value="">— اختر الصنف أولاً —</option>';
+    document.getElementById('batchHint').style.display='none';
+    return;
   }
+  // استخدام نفس نظام الدفعات المعتمد في الجرد وإغلاق السنة المالية:
+  // كل كمية غير مرتبطة بتاريخ صلاحية تُجمع في دفعة "بدون تاريخ"، ومربوطة برصيدها الفعلي
+  const batches=computeItemBatches(item);
+  if(!batches.length){
+    sel.innerHTML='<option value="">لا يوجد رصيد متاح لهذا الصنف</option>';
+    document.getElementById('batchHint').style.display='none';
+    return;
+  }
+  sel.innerHTML='<option value="">— اختر —</option>'+batches.map(b=>{
+    const label=(b.expiry?('صلاحية '+b.expiry):'بدون تاريخ صلاحية')+' — متاح: '+b.qty.toLocaleString()+' '+item.unit;
+    const val=b.expiry?b.expiry:'__NONE__';
+    return `<option value="${val}" data-qty="${b.qty}">${label}</option>`;
+  }).join('');
+  document.getElementById('batchHint').style.display='none';
+  recalcDistribution();
+}
+
+// يعرض رصيد الدفعة (التاريخ/بدون تاريخ) المختارة حالياً في فورم الصرف
+function showBatchHint(){
+  const sel=document.getElementById('fMovExpirySelect');
+  const hint=document.getElementById('batchHint');
+  if(!sel||!sel.value){hint.style.display='none';return;}
+  const opt=sel.options[sel.selectedIndex];
+  if(!opt||opt.dataset.qty===undefined){hint.style.display='none';return;}
+  hint.style.display='block';
+  const item=items.find(i=>i.id===document.getElementById('fMovItem').value);
+  document.getElementById('batchHintVal').textContent=parseFloat(opt.dataset.qty).toLocaleString()+' '+(item?item.unit:'');
+}
+
+function batchLabel(expiry){
+  return expiry?('صلاحية '+expiry):'بدون تاريخ صلاحية';
+}
+
+// يعيد بناء صفوف "باقي الكمية المراد صرفها" حسب الكمية المطلوبة والدفعات المختارة فعلياً.
+// كل صف يمثل دفعة إضافية تم اختيارها لتغطية جزء من النقص. يضيف صفاً جديداً تلقائياً
+// كل ما تبقى جزء غير موزَّع بعد آخر اختيار، ويمنع تكرار اختيار نفس الدفعة مرتين.
+function recalcDistribution(){
+  const container=document.getElementById('extraBatchesContainer');
+  const type=document.getElementById('fMovType').value;
+  const itemId=document.getElementById('fMovItem').value;
+  const item=items.find(i=>i.id===itemId);
+  const qty=parseFloat(document.getElementById('fMovQty').value)||0;
+  const mainSel=document.getElementById('fMovExpirySelect');
+
+  if(type!=='صرف'||!item||!qty||!mainSel||!mainSel.value){
+    container.style.display='none';container.innerHTML='';return;
+  }
+
+  const batches=computeItemBatches(item);
+  const mainExp=mainSel.value==='__NONE__'?'':mainSel.value;
+  const mainBatch=batches.find(b=>b.expiry===mainExp);
+  const mainAvail=mainBatch?mainBatch.qty:0;
+
+  // اجمع اختيارات صفوف التوزيع الحالية (لو موجودة) قبل إعادة البناء، للحفاظ عليها لو لسه منطقية
+  const existingSelects=[...container.querySelectorAll('select[data-distidx]')];
+  const prevChoices=existingSelects.map(s=>s.value).filter(v=>v);
+
+  container.innerHTML='';
+  let remaining=qty-mainAvail;
+  if(remaining<=0.0001){
+    container.style.display='none';
+    return;
+  }
+  container.style.display='block';
+
+  const usedExpiries=[mainExp];
+  let rowIndex=0;
+  let choiceIdx=0;
+
+  while(remaining>0.0001){
+    // الدفعات المتاحة لهذا الصف: غير المستخدمة في الصفوف السابقة (وغير الدفعة الأساسية)
+    const availableForRow=batches.filter(b=>!usedExpiries.includes(b.expiry)&&b.qty>0.0001);
+    const rowDiv=document.createElement('div');
+    rowDiv.className='fg span-all';
+    rowDiv.style.marginTop='6px';
+    const remainingRounded=Math.round(remaining*100)/100;
+
+    if(!availableForRow.length){
+      rowDiv.innerHTML=`<div class="alert alert-red">⚠️ باقي ${remainingRounded.toLocaleString()} ${item.unit} غير موزَّعة، ولا توجد دفعات أخرى متاحة لهذا الصنف لتغطيتها.</div>`;
+      container.appendChild(rowDiv);
+      break;
+    }
+
+    const chosenVal=prevChoices[choiceIdx]||'';
+    const chosenExp=chosenVal==='__NONE__'?'':chosenVal;
+    const chosenStillValid=availableForRow.some(b=>(b.expiry?b.expiry:'__NONE__')===chosenVal);
+
+    rowDiv.innerHTML=`
+      <label>باقي الكمية المراد صرفها: ${remainingRounded.toLocaleString()} ${item.unit} — اختر تاريخ/دفعة لصرفه</label>
+      <select data-distidx="${rowIndex}" onchange="recalcDistribution()">
+        <option value="">— اختر —</option>
+        ${availableForRow.map(b=>{
+          const v=b.expiry?b.expiry:'__NONE__';
+          const sel=(chosenStillValid&&v===chosenVal)?'selected':'';
+          return `<option value="${v}" data-qty="${b.qty}" ${sel}>${batchLabel(b.expiry)} — متاح: ${b.qty.toLocaleString()} ${item.unit}</option>`;
+        }).join('')}
+      </select>`;
+    container.appendChild(rowDiv);
+
+    if(!chosenVal||!chosenStillValid){
+      break; // لسه المستخدم لم يختار دفعة لهذا الصف، نوقف هنا لحد ما يختار
+    }
+    const chosenBatch=availableForRow.find(b=>(b.expiry?b.expiry:'__NONE__')===chosenVal);
+    usedExpiries.push(chosenExp);
+    remaining=remaining-(chosenBatch?chosenBatch.qty:0);
+    rowIndex++;choiceIdx++;
+  }
+}
+
+// يجمع توزيع الكمية بالكامل (الدفعة الأساسية + كل الدفعات الإضافية المختارة) لاستخدامه عند الحفظ.
+// يرجع null لو التوزيع غير مكتمل (لسه فيه كمية بدون دفعة، أو مفيش رصيد كافٍ في كل الدفعات)
+function getFullDistribution(item,qty,mainExp){
+  const batches=computeItemBatches(item);
+  const mainBatch=batches.find(b=>b.expiry===mainExp);
+  const mainAvail=mainBatch?mainBatch.qty:0;
+  const parts=[];
+  let remaining=qty;
+  const used=Math.min(qty,mainAvail);
+  parts.push({expiry:mainExp,qty:used});
+  remaining-=used;
+  if(remaining<=0.0001) return {parts,remaining:0};
+
+  const container=document.getElementById('extraBatchesContainer');
+  const selects=[...container.querySelectorAll('select[data-distidx]')];
+  const usedExpiries=[mainExp];
+  for(const s of selects){
+    if(!s.value) return {parts,remaining}; // صف لم يُختار له تاريخ بعد
+    const exp=s.value==='__NONE__'?'':s.value;
+    if(usedExpiries.includes(exp)) return {parts,remaining};
+    const b=batches.find(x=>x.expiry===exp);
+    const avail=b?b.qty:0;
+    const used2=Math.min(remaining,avail);
+    parts.push({expiry:exp,qty:used2});
+    usedExpiries.push(exp);
+    remaining-=used2;
+    if(remaining<=0.0001){remaining=0;break;}
+  }
+  return {parts,remaining};
 }
 
 function showStockHint(){
@@ -2332,18 +2567,25 @@ function showStockHint(){
   document.getElementById('stockHintVal').textContent=`${item.stock.toLocaleString()} ${item.unit}`;
 }
 
-function clearMovForm(){
+function clearMovForm(keepAlert){
   ['fMovItem','fMovQty','fMovDoc','fMovParty','fMovNotes','fMovExpiry'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const esel=document.getElementById('fMovExpirySelect');if(esel)esel.selectedIndex=0;
   document.getElementById('fMovDate').value=new Date().toISOString().split('T')[0];
   document.getElementById('stockHint').style.display='none';
-  document.getElementById('movFormAlert').innerHTML='';
+  document.getElementById('batchHint').style.display='none';
+  const ebc=document.getElementById('extraBatchesContainer');
+  if(ebc){ebc.innerHTML='';ebc.style.display='none';}
+  const ibc=document.getElementById('inBatchesContainer');
+  if(ibc){ibc.innerHTML='';ibc.style.display='none';}
+  const aibw=document.getElementById('addInBatchWrap');
+  if(aibw) aibw.style.display='none';
+  if(!keepAlert) document.getElementById('movFormAlert').innerHTML='';
 }
 
 async function saveMovement(){
   const type=document.getElementById('fMovType').value;
   const itemId=document.getElementById('fMovItem').value;
-  const qty=parseInt(document.getElementById('fMovQty').value)||0;
+  let qty=parseFloat(document.getElementById('fMovQty').value)||0;
   const docNo=document.getElementById('fMovDoc').value.trim();
   const party=document.getElementById('fMovParty').value.trim();
   const staffId=document.getElementById('fMovStaff').value;
@@ -2351,33 +2593,72 @@ async function saveMovement(){
   const notes=document.getElementById('fMovNotes').value.trim();
   const alertEl=document.getElementById('movFormAlert');
 
-  if(!itemId||!qty||!docNo||!party||!staffId||!date){
+  // للوارد: الكمية الكلية تُحسب من مجموع الدفعات، فلا نشترط qty > 0 هنا
+  const qtyOk = type==='وارد' ? true : qty>0;
+  if(!itemId||!qtyOk||!docNo||!party||!staffId||!date){
     alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى تعبئة جميع الحقول المطلوبة</div>`;return;}
-  if(qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
+  if(type!=='وارد'&&qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
   const item=items.find(i=>i.id===itemId);
   const staffMem=staff.find(s=>s.id===staffId);
-  if(type==='صرف'&&qty>item.stock){
-    alertEl.innerHTML=`<div class="alert alert-amber">⚠️ الكمية (${qty}) أكبر من الرصيد الحالي (${item.stock}). هل تريد المتابعة؟ سيصبح الرصيد سالباً.</div>`;
-  }
-  movCounter++;
-  // تاريخ الصلاحية
-  let expiry='';
+
+  // تاريخ الصلاحية والدفعات
+  let parts=[];
   if(type==='وارد'){
-    expiry=document.getElementById('fMovExpiry').value||'';
+    parts=getInBatches();
+    if(!parts.length){
+      alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى إدخال كمية صحيحة</div>`;return;
+    }
+    // التحقق من الكمية الإجمالية
+    qty=parts.reduce((s,p)=>s+p.qty,0);
+    if(qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
   } else {
-    expiry=document.getElementById('fMovExpirySelect').value||'';
+    const rawExp=document.getElementById('fMovExpirySelect').value;
+    if(!rawExp){
+      alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى اختيار التاريخ / الدفعة المراد الصرف منها</div>`;return;
+    }
+    const expiry=(rawExp==='__NONE__')?'':rawExp;
+    parts=[{expiry,qty}];
   }
-  const mov={id:'mov_'+Date.now(),serial:movCounter,type,itemId,itemName:item.name,
-    qty,docNo,party,staffId,staffName:staffMem.name,date,notes,expiry,
-    archived:false,fiscalYear:getFiscalYear(date),createdAt:new Date().toISOString()};
-  movements.push(mov);
-  if(type==='صرف') item.stock-=qty; else item.stock+=qty;
+
+  if(type==='صرف'){
+    const dist=getFullDistribution(item,qty,expiry);
+    if(dist.remaining>0.0001){
+      // التوزيع غير مكتمل: إما لم يُختر تاريخ لكل جزء، أو لا يوجد رصيد كافٍ في كل الدفعات
+      const batches=computeItemBatches(item);
+      const usedExpiries=dist.parts.map(p=>p.expiry);
+      const others=batches.filter(b=>!usedExpiries.includes(b.expiry)&&b.qty>0.0001)
+        .map(b=>`${batchLabel(b.expiry)}: ${b.qty.toLocaleString()} ${item.unit}`);
+      const remainingRounded=Math.round(dist.remaining*100)/100;
+      alertEl.innerHTML=`<div class="alert alert-amber">⚠️ لم يتم تسجيل الحركة بعد — باقي ${remainingRounded.toLocaleString()} ${item.unit} لم يتم توزيعها على تاريخ/دفعة.<br>`
+        +(others.length?('التواريخ/الدفعات المتاحة لتغطية الباقي:<br>'+others.join('<br>')):'لا توجد دفعات أخرى متاحة لهذا الصنف لتغطية الباقي.')
+        +`</div>`;
+      return; // لا تتم عملية الصرف قبل اكتمال التوزيع بالكامل
+    }
+    parts=dist.parts.filter(p=>p.qty>0.0001);
+  }
+
+  movCounter++;
+  const groupId='movgrp_'+Date.now();
+  const createdAt=new Date().toISOString();
+  const savedMovs=[];
+  for(const p of parts){
+    const mov={id:'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),serial:movCounter,type,itemId,itemName:item.name,
+      qty:p.qty,docNo,party,staffId,staffName:staffMem.name,date,notes,expiry:p.expiry,
+      groupId,archived:false,fiscalYear:getFiscalYear(date),createdAt};
+    movements.push(mov);
+    if(type==='صرف') item.stock-=p.qty; else item.stock+=p.qty;
+    savedMovs.push(mov);
+  }
   save();
-  await sbSaveMovement(mov);
+  for(const mov of savedMovs){ await sbSaveMovement(mov); }
   await sbSaveItems();
   renderAll();
-  alertEl.innerHTML=`<div class="alert alert-green">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
-  clearMovForm();
+  let successMsg=`✅ تم تسجيل حركة ${type} — رقم #${movCounter}`;
+  if(parts.length>1){
+    successMsg+=' (موزَّعة على '+parts.length+' دفعات: '+parts.map(p=>`${batchLabel(p.expiry)} (${p.qty.toLocaleString()} ${item.unit})`).join('، ')+')';
+  }
+  alertEl.innerHTML=`<div class="alert alert-green">${successMsg}</div>`;
+  clearMovForm(false);
   await syncToSheets();
 }
 
@@ -2759,15 +3040,19 @@ function viewItemMov(itemId){
   document.getElementById('imOut').textContent=totalOut.toLocaleString();
   document.getElementById('imIn').textContent=totalIn.toLocaleString();
   document.getElementById('imAvg').textContent=avgMonthly(itemId).toLocaleString();
-  document.getElementById('imList').innerHTML=movs.length?movs.map(m=>`
+  const groups=groupMovementsForDisplay(movs);
+  document.getElementById('imList').innerHTML=groups.length?groups.map(m=>{
+    const multi=m.parts.length>1;
+    const batchesNote=multi?(' · دفعات: '+m.parts.map(p=>(p.expiry||'بدون تاريخ')+' ('+p.qty.toLocaleString()+')').join('، ')):'';
+    return `
     <div class="mov-item">
       <div class="mov-icon ${m.type}">${m.type==='صرف'?'📤':'📥'}</div>
       <div class="mov-info">
         <div class="mov-title">#${m.serial} — ${m.type} — ${m.party}</div>
-        <div class="mov-sub">إذن/فاتورة: ${m.docNo} · ${m.staffName} · ${fmt(m.date)}${m.notes?' · '+m.notes:''}</div>
+        <div class="mov-sub">إذن/فاتورة: ${m.docNo} · ${m.staffName} · ${fmt(m.date)}${m.notes?' · '+m.notes:''}${batchesNote}</div>
       </div>
       <div class="mov-qty ${m.type}">${m.type==='صرف'?'−':'+'}${m.qty.toLocaleString()}</div>
-    </div>`).join(''):`<div class="empty"><div class="empty-icon">📋</div>لا توجد حركات</div>`;
+    </div>`;}).join(''):`<div class="empty"><div class="empty-icon">📋</div>لا توجد حركات</div>`;
   openModal('itemMovModal');
 }
 
@@ -2775,8 +3060,9 @@ function exportItemXLS(){
   if(!currentItemId)return;
   const item=items.find(i=>i.id===currentItemId);
   const movs=movements.filter(m=>m.itemId===currentItemId).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const groups=groupMovementsForDisplay(movs);
   const rows=[['#','النوع','الكمية','الإذن/الفاتورة','الجهة','المسؤول','التاريخ','ملاحظات']];
-  movs.forEach(m=>rows.push([m.serial,m.type,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||'']));
+  groups.forEach(m=>rows.push([m.serial,m.type,m.qty,m.docNo,m.party,m.staffName,m.date,m.notes||'']));
   toXLS(rows,`حركات_${item.name}`);
 }
 
@@ -3082,6 +3368,7 @@ function gotoPage(p){
   document.getElementById('topSub').textContent=info[1];
   if(p==='reports')renderAvg();
   if(p==='inventory')renderInventoryHistory();
+  if(p==='add-movement')onMovTypeChange();
   document.getElementById('sidebar').classList.remove('open');
 }
 function openModal(id){document.getElementById(id).classList.add('open')}
@@ -3119,17 +3406,39 @@ async function deleteItemFromModal(){
 }
 
 // ════ تعديل الحركة ════
+let emGroupIds=[]; // أيدات كل الدفعات (سطور movements) المنتمية للحركة المفتوحة للتعديل حالياً
+
+// يبني قائمة التواريخ/الدفعات المتاحة لصنف معين لاستخدامها في select تعديل الحركة.
+// تشمل كل تواريخ الصلاحية الفعلية + "بدون تاريخ صلاحية"، حتى لو كان رصيدها صفراً حالياً
+// (مثل التاريخ الذي كانت عليه الحركة قبل التعديل)، طالما هذا التاريخ مذكور صراحة أو له رصيد > 0.
+function getEmExpiryOptionsHtml(itemId,currentExpiry){
+  const item=items.find(i=>i.id===itemId);
+  if(!item) return '<option value="">— اختر —</option>';
+  const batches=item?computeItemBatches(item):[];
+  const expirySet=new Map(); // expiry -> qty
+  batches.forEach(b=>expirySet.set(b.expiry,b.qty));
+  if(!expirySet.has(currentExpiry||'')) expirySet.set(currentExpiry||'',0);
+  const sorted=[...expirySet.entries()].sort((a,b)=>(a[0]||'9999-99-99').localeCompare(b[0]||'9999-99-99'));
+  return sorted.map(([exp,qty])=>{
+    const val=exp?exp:'__NONE__';
+    const label=(exp?('صلاحية '+exp):'بدون تاريخ صلاحية')+(qty>0?(' — متاح: '+qty.toLocaleString()+' '+item.unit):'');
+    const selAttr=((currentExpiry||'')===exp)?'selected':'';
+    return `<option value="${val}" ${selAttr}>${label}</option>`;
+  }).join('');
+}
+
 function openEditMov(movId){
   const mov=movements.find(m=>m.id===movId);
   if(!mov)return;
-  // حفظ بيانات الحركة القديمة
+  // كل أجزاء هذه الحركة المنطقية (نفس serial+itemId+type)
+  const groupMovs=movements.filter(m=>m.serial===mov.serial&&m.itemId===mov.itemId&&m.type===mov.type);
+  emGroupIds=groupMovs.map(m=>m.id);
+
   document.getElementById('emId').value=movId;
   document.getElementById('emType').value=mov.type;
-  document.getElementById('emQty').value=mov.qty;
   document.getElementById('emDoc').value=mov.docNo;
   document.getElementById('emParty').value=mov.party;
   document.getElementById('emDate').value=mov.date;
-  document.getElementById('emExpiry').value=mov.expiry||'';
   document.getElementById('emNotes').value=mov.notes||'';
   // تعبئة قائمة الأصناف
   const sortedItems=[...items].sort((a,b)=>a.page-b.page);
@@ -3138,8 +3447,59 @@ function openEditMov(movId){
   // تعبئة قائمة الموظفين
   document.getElementById('emStaff').innerHTML='<option value="">— اختر —</option>'+staff.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   document.getElementById('emStaff').value=mov.staffId;
+
+  const multi=groupMovs.length>1;
+  document.getElementById('emBatchesWrap').style.display=multi?'block':'none';
+  document.getElementById('emSingleQtyWrap').style.display=multi?'none':'block';
+  document.getElementById('emSingleExpiryWrap').style.display=multi?'none':'block';
+  if(multi){
+    document.getElementById('emBatchesList').innerHTML=groupMovs.map((m,idx)=>emBatchRowHtml(idx,m.qty,m.expiry||'',mov.itemId)).join('');
+  } else {
+    document.getElementById('emQty').value=mov.qty;
+    document.getElementById('emExpirySelect').innerHTML=getEmExpiryOptionsHtml(mov.itemId,mov.expiry||'');
+  }
   onEmTypeChange();
   openModal('editMovModal');
+}
+
+function emBatchRowHtml(idx,qty,expiry,itemId){
+  return `<div class="form-grid" data-embatch="${idx}" style="margin-bottom:6px;align-items:end">
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">الكمية</label>
+      <input type="number" min="0" class="em-batch-qty" value="${qty}">
+    </div>
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">تاريخ الصلاحية / الدفعة</label>
+      <select class="em-batch-expiry">${getEmExpiryOptionsHtml(itemId,expiry)}</select>
+    </div>
+    <div class="fg" style="margin:0">
+      <button type="button" class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="this.closest('[data-embatch]').remove()" title="حذف هذه الدفعة">🗑</button>
+    </div>
+  </div>`;
+}
+
+function addEmBatchRow(){
+  const list=document.getElementById('emBatchesList');
+  const idx=list.children.length;
+  const itemId=document.getElementById('emItem').value;
+  list.insertAdjacentHTML('beforeend',emBatchRowHtml(idx,0,'',itemId));
+}
+
+// عند تغيير الصنف داخل مودال التعديل، يجب إعادة بناء قوائم التواريخ المتاحة (تخص الصنف الجديد)
+function onEmItemChange(){
+  const itemId=document.getElementById('emItem').value;
+  const multi=document.getElementById('emBatchesWrap').style.display!=='none';
+  if(multi){
+    const rows=[...document.getElementById('emBatchesList').children];
+    rows.forEach(row=>{
+      const sel=row.querySelector('.em-batch-expiry');
+      const keepVal=sel.value;
+      sel.innerHTML=getEmExpiryOptionsHtml(itemId,keepVal==='__NONE__'?'':keepVal);
+    });
+  } else {
+    const esel=document.getElementById('emExpirySelect');
+    if(esel) esel.innerHTML=getEmExpiryOptionsHtml(itemId,'');
+  }
 }
 
 function onEmTypeChange(){
@@ -3159,43 +3519,72 @@ async function saveEditMov(){
   if(!mov)return;
   const newType=document.getElementById('emType').value;
   const newItemId=document.getElementById('emItem').value;
-  const newQty=parseInt(document.getElementById('emQty').value)||0;
   const newDoc=document.getElementById('emDoc').value.trim();
   const newParty=document.getElementById('emParty').value.trim();
   const newStaffId=document.getElementById('emStaff').value;
   const newDate=document.getElementById('emDate').value;
-  const newExpiry=document.getElementById('emExpiry').value||'';
   const newNotes=document.getElementById('emNotes').value.trim();
-  if(!newQty||!newDate){alert('يرجى تعبئة الحقول المطلوبة');return;}
+  if(!newDate){alert('يرجى تعبئة الحقول المطلوبة');return;}
   if(newType!=='رصيد افتتاحي'&&(!newDoc||!newParty)){alert('يرجى تعبئة الحقول المطلوبة');return;}
-  // تراجع عن أثر الحركة القديمة على الرصيد
+
+  const multi=document.getElementById('emBatchesWrap').style.display!=='none';
+  let newBatches=[]; // [{qty, expiry}]
+  if(multi){
+    const rows=[...document.getElementById('emBatchesList').children];
+    for(const row of rows){
+      const q=parseFloat(row.querySelector('.em-batch-qty').value)||0;
+      const rawExp=row.querySelector('.em-batch-expiry').value||'';
+      const exp=rawExp==='__NONE__'?'':rawExp;
+      if(q>0) newBatches.push({qty:q,expiry:exp});
+    }
+    if(!newBatches.length){alert('يرجى إدخال كمية صحيحة لدفعة واحدة على الأقل');return;}
+  } else {
+    const newQty=parseFloat(document.getElementById('emQty').value)||0;
+    const rawExpiry=document.getElementById('emExpirySelect').value||'';
+    const newExpiry=rawExpiry==='__NONE__'?'':rawExpiry;
+    if(!newQty){alert('يرجى تعبئة الحقول المطلوبة');return;}
+    newBatches=[{qty:newQty,expiry:newExpiry}];
+  }
+
+  // الأجزاء القديمة لهذه الحركة (قد يكون سطراً واحداً أو عدة دفعات)
+  const oldGroupMovs=emGroupIds.length?movements.filter(m=>emGroupIds.includes(m.id)):[mov];
+
+  // 1) التراجع عن أثر كل الأجزاء القديمة على رصيد الصنف القديم
   const oldItem=items.find(i=>i.id===mov.itemId);
   if(oldItem){
-    if(mov.type==='صرف') oldItem.stock+=mov.qty;
-    else oldItem.stock-=mov.qty;
+    oldGroupMovs.forEach(m=>{
+      if(m.type==='صرف') oldItem.stock+=m.qty;
+      else oldItem.stock-=m.qty;
+    });
   }
-  // تطبيق الحركة الجديدة
+
+  // 2) تطبيق أثر الدفعات الجديدة على رصيد الصنف الجديد (قد يكون نفس الصنف أو صنفاً آخر)
   const newItem=items.find(i=>i.id===newItemId);
   const staffMem=staff.find(s=>s.id===newStaffId);
   if(newItem){
-    if(newType==='صرف') newItem.stock-=newQty;
-    else newItem.stock+=newQty;
+    newBatches.forEach(b=>{
+      if(newType==='صرف') newItem.stock-=b.qty;
+      else newItem.stock+=b.qty;
+    });
   }
-  // تحديث بيانات الحركة
-  mov.type=newType;
-  mov.itemId=newItemId;
-  mov.itemName=newItem?newItem.name:mov.itemName;
-  mov.qty=newQty;
-  mov.docNo=newDoc;
-  mov.party=newParty;
-  mov.staffId=newStaffId;
-  mov.staffName=staffMem?staffMem.name:mov.staffName;
-  mov.date=newDate;
-  mov.expiry=newExpiry;
-  mov.fiscalYear=getFiscalYear(newDate);
-  mov.notes=newNotes;
+
+  // 3) حذف الأسطر القديمة وإنشاء أسطر جديدة بنفس serial (للحفاظ على الرقم التسلسلي الظاهر للمستخدم)
+  const serial=mov.serial;
+  const createdAt=mov.createdAt||new Date().toISOString();
+  const oldIds=oldGroupMovs.map(m=>m.id);
+  movements=movements.filter(m=>!oldIds.includes(m.id));
+  const newMovs=newBatches.map(b=>({
+    id:'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    serial,type:newType,itemId:newItemId,itemName:newItem?newItem.name:mov.itemName,
+    qty:b.qty,docNo:newDoc,party:newParty,staffId:newStaffId,
+    staffName:staffMem?staffMem.name:mov.staffName,date:newDate,notes:newNotes,
+    expiry:b.expiry,archived:mov.archived||false,fiscalYear:getFiscalYear(newDate),createdAt
+  }));
+  movements.push(...newMovs);
+
   save();
-  await sbSaveMovement(mov);
+  for(const id of oldIds){ await sbDeleteRow('movements',id); }
+  for(const m of newMovs){ await sbSaveMovement(m); }
   await sbSaveItems();
   renderAll();
   closeModal('editMovModal');
@@ -3209,23 +3598,41 @@ function confirmDeleteMov(){
   deleteMov(movId);
 }
 
+// غلاف يُستخدم من صف الحركة المجمَّعة في الجدول: يستقبل id واحداً أو عدة ids مفصولة بفاصلة
+// (كلها تابعة لنفس الحركة المنطقية)، ويكفي تمرير أولها لأن deleteMov تجمع باقي الأجزاء تلقائياً
+function deleteMovGroup(idOrIds){
+  const firstId=String(idOrIds).split(',')[0];
+  return deleteMov(firstId);
+}
+
 async function deleteMov(movId){
   const mov=movements.find(m=>m.id===movId);
   if(!mov)return;
+  // لو الحركة جزء من حركة منطقية واحدة موزَّعة على عدة دفعات (نفس serial+itemId+type)،
+  // يتم حذف كل الأجزاء معاً كوحدة واحدة. هذا المعيار آمن ودائم (يعمل أيضاً بعد إعادة تحميل الصفحة)
+  // لأن serial فريد دائماً لكل حركة منطقية ولا يتكرر بين حركات مختلفة.
+  const groupMovs=movements.filter(m=>m.serial===mov.serial&&m.itemId===mov.itemId&&m.type===mov.type);
+  const totalQty=groupMovs.reduce((s,m)=>s+m.qty,0);
   if(mov.type==='رصيد افتتاحي'){
     if(!confirm('⚠️ هذه دفعة "رصيد افتتاحي" مرحّلة من السنة المالية السابقة (صلاحية: '+(mov.expiry||'بدون تاريخ')+').\nحذفها سيقلل رصيد "'+mov.itemName+'" الحالي بمقدار '+mov.qty.toLocaleString()+'.\nهل أنت متأكد؟'))return;
+  } else if(groupMovs.length>1){
+    const partsDesc=groupMovs.map(m=>`${batchLabel(m.expiry)}: ${m.qty.toLocaleString()}`).join('، ');
+    if(!confirm('حذف الحركة #'+mov.serial+' ('+mov.type+' '+totalQty.toLocaleString()+' '+mov.itemName+' — موزَّعة على دفعات: '+partsDesc+')؟\nسيتم حذف كل أجزاء هذه الحركة معاً.'))return;
   } else {
     if(!confirm('حذف الحركة #'+mov.serial+' ('+mov.type+' '+mov.qty+' '+mov.itemName+')؟'))return;
   }
-  // تراجع عن أثر الحركة على الرصيد
+  // تراجع عن أثر كل أجزاء الحركة على الرصيد
   const item=items.find(i=>i.id===mov.itemId);
   if(item){
-    if(mov.type==='صرف') item.stock+=mov.qty;
-    else item.stock-=mov.qty;
+    groupMovs.forEach(m=>{
+      if(m.type==='صرف') item.stock+=m.qty;
+      else item.stock-=m.qty;
+    });
   }
-  movements=movements.filter(m=>m.id!==movId);
+  const idsToDelete=groupMovs.map(m=>m.id);
+  movements=movements.filter(m=>!idsToDelete.includes(m.id));
   save();
-  await sbDeleteRow('movements',movId);
+  for(const id of idsToDelete){ await sbDeleteRow('movements',id); }
   await sbSaveItems();
   renderAll();
   await sleep(2500);
