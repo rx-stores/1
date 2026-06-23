@@ -2621,6 +2621,7 @@ async function saveMovement(){
   }
 
   if(type==='صرف'){
+    const expiry=parts[0].expiry; // الدفعة الأساسية المختارة
     const dist=getFullDistribution(item,qty,expiry);
     if(dist.remaining>0.0001){
       // التوزيع غير مكتمل: إما لم يُختر تاريخ لكل جزء، أو لا يوجد رصيد كافٍ في كل الدفعات
