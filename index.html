@@ -975,7 +975,7 @@ tbody tr:last-child td{border-bottom:none}
             <div class="form-grid">
               <div class="fg">
                 <label>الصنف *</label>
-                <select id="fMovItem" onchange="showStockHint();if(document.getElementById('fMovType').value==='صرف')fillExpirySelect(this.value)">
+                <select id="fMovItem" onchange="showStockHint()">
                   <option value="">— اختر الصنف —</option>
                 </select>
               </div>
@@ -1439,6 +1439,13 @@ function syncFromSupabase() {
           <select id="niUnit"><option>زجاجة</option><option>كيس</option><option>علبة</option><option>أمبول</option><option>لتر</option><option>ملي</option><option>وحدة</option></select>
         </div>
         <div class="fg"><label>ملاحظات</label><input id="niNotes" placeholder="اختياري"></div>
+        <div class="fg span-all">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="niExpiryTracked" style="width:16px;height:16px">
+            <span>📅 تتبع تواريخ الصلاحية والدفعات لهذا الصنف</span>
+          </label>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">فعّل هذا الخيار للأصناف التي تحتاج تتبع تاريخ الصلاحية عند الاستلام والصرف (مثل: اميبارين، امينوليبان، تادينوميرز، دايبيبتفين، كيدمين، سموفكابيفين)</div>
+        </div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1463,6 +1470,12 @@ function syncFromSupabase() {
           <select id="eiUnit"><option>زجاجة</option><option>كيس</option><option>علبة</option><option>أمبول</option><option>لتر</option><option>ملي</option><option>وحدة</option></select>
         </div>
         <div class="fg"><label>ملاحظات</label><input id="eiNotes"></div>
+        <div class="fg span-all">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="eiExpiryTracked" style="width:16px;height:16px">
+            <span>📅 تتبع تواريخ الصلاحية والدفعات لهذا الصنف</span>
+          </label>
+        </div>
         <div class="fg span-all">
           <label>الاسم التجاري (للطلبيات فقط — بالإنجليزي)</label>
           <input id="eiTradeName" placeholder="e.g. Sodium Chloride 0.9% 500ml - CompanyName">
@@ -1700,7 +1713,8 @@ async function sbSaveItems(){
     id:i.id,name:i.name,page:i.page,
     stock:i.stock,unit:i.unit||'زجاجة',
     min_stock:i.minStock||50,notes:i.notes||'',
-    trade_name:i.tradeName||''
+    trade_name:i.tradeName||'',
+    expiry_tracked:i.expiryTracked?true:false
   })));
 }
 
@@ -1794,8 +1808,12 @@ const DEFAULTS=[
   {name:'ملح 0.9% 100 ملي',page:105},{name:'ملح ثلاثي 2.7%',page:117},
   {name:'فولقن',page:120},{name:'رنجر',page:125},{name:'بيدمنت 250 ملي',page:140},
   {name:'اسيتات رنجر',page:143},{name:'بيكربونات صوديوم',page:145},
-  {name:'مانيتول',page:155},{name:'تادينوميرز',page:163},{name:'سموفكابيفين',page:165},
-  {name:'كيدمن',page:185},{name:'اميبارين',page:188},{name:'امينوليبان',page:197}
+  {name:'مانيتول',page:155},
+  {name:'تادينوميرز',page:163,expiryTracked:true},
+  {name:'سموفكابيفين',page:165,expiryTracked:true},
+  {name:'كيدمن',page:185,expiryTracked:true},
+  {name:'اميبارين',page:188,expiryTracked:true},
+  {name:'امينوليبان',page:197,expiryTracked:true}
 ];
 
 // ═══════════════════ INIT ═══════════════════
@@ -1834,8 +1852,19 @@ async function loadFromSupabase(){
       stock:parseFloat(r.stock)||0,unit:r.unit||'زجاجة',
       minStock:parseFloat(r.min_stock)||50,notes:r.notes||'',
       tradeName:r.trade_name||'',
+      expiryTracked:r.expiry_tracked===true||r.expiry_tracked==='true',
       createdAt:r.created_at||new Date().toISOString()
     }));
+    // تفعيل expiryTracked تلقائياً للأصناف المعروفة التي لم تُحدَّث بعد
+    const EXPIRY_TRACKED_NAMES=['تادينوميرز','سموفكابيفين','كيدمن','اميبارين','امينوليبان','دايبيبتفين'];
+    let needsSave=false;
+    items.forEach(item=>{
+      if(!item.expiryTracked && EXPIRY_TRACKED_NAMES.some(n=>item.name.includes(n))){
+        item.expiryTracked=true;
+        needsSave=true;
+      }
+    });
+    if(needsSave) setTimeout(()=>sbSaveItems(),2000);
     movements=mRows.map(r=>({
       id:r.id,serial:parseInt(r.serial)||0,
       type:r.type,itemId:r.item_id,itemName:r.item_name,
@@ -1898,7 +1927,8 @@ async function sbSaveItems(){
     id:i.id,name:i.name,page:i.page,
     stock:i.stock,unit:i.unit||'زجاجة',
     min_stock:i.minStock||50,notes:i.notes||'',
-    trade_name:i.tradeName||''
+    trade_name:i.tradeName||'',
+    expiry_tracked:i.expiryTracked?true:false
   })));
 }
 
@@ -2385,26 +2415,20 @@ function onMovTypeChange(){
     if(!document.getElementById('bulkRowsContainer').children.length) addBulkRow();
     return;
   }
-  // فورم منفرد
+  // فورم منفرد — إعادة ضبط حالة التواريخ
   document.getElementById('fDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
   document.getElementById('fPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
-  const dateWrap=document.getElementById('expiryDateWrap');
-  const selWrap=document.getElementById('expirySelectWrap');
-  const addInBtn=document.getElementById('addInBatchWrap');
+  // إخفاء كل عناصر التواريخ مبدئياً — showStockHint ستُظهر المناسب بعد اختيار الصنف
+  document.getElementById('expiryDateWrap').style.display='none';
+  document.getElementById('addInBatchWrap').style.display='none';
+  document.getElementById('expirySelectWrap').style.display='none';
+  document.getElementById('extraBatchesContainer').innerHTML='';
+  document.getElementById('extraBatchesContainer').style.display='none';
+  document.getElementById('batchHint').style.display='none';
   const ibc=document.getElementById('inBatchesContainer');
-  if(t==='وارد'){
-    if(dateWrap) dateWrap.style.display='block';
-    if(selWrap) selWrap.style.display='none';
-    if(addInBtn) addInBtn.style.display='block';
-  } else {
-    if(dateWrap) dateWrap.style.display='none';
-    if(addInBtn) addInBtn.style.display='none';
-    if(ibc){ibc.innerHTML='';ibc.style.display='none';}
-    if(selWrap){
-      selWrap.style.display='block';
-      fillExpirySelect(document.getElementById('fMovItem').value);
-    }
-  }
+  ibc.innerHTML='';ibc.style.display='none';
+  // لو فيه صنف مختار مسبقاً، نعيد تقييم التواريخ
+  if(document.getElementById('fMovItem').value) showStockHint();
 }
 
 // ═══════════════════ IN-BATCHES (وارد بتواريخ متعددة) ═══════════════════
@@ -2540,20 +2564,39 @@ function removeBulkRow(btn){
   });
 }
 
-// عند اختيار الصنف: يضيف تلقائياً أول صف دفعة بالتاريخ المتاح الأول
+// عند اختيار الصنف: يضيف تلقائياً صف دفعة لو الصنف متتبَّع، أو صف كمية بدون تاريخ لو لأ
 function onBulkItemChange(sel){
   const row=sel.closest('.bulk-row');
   const batchesDiv=row.querySelector('.bulk-batches');
+  const addBatchBtn=row.querySelector('button[onclick="addBulkBatchRow(this)"]');
   batchesDiv.innerHTML='';
   const itemId=sel.value;
   if(!itemId) return;
-  batchesDiv.insertAdjacentHTML('beforeend',bulkBatchRowHtml(itemId,'',''));
+  const item=items.find(i=>i.id===itemId);
+  const tracked=item&&item.expiryTracked;
+  if(tracked){
+    batchesDiv.insertAdjacentHTML('beforeend',bulkBatchRowHtml(itemId,'',''));
+    if(addBatchBtn) addBatchBtn.style.display='';
+  } else {
+    // صنف غير متتبَّع: فقط حقل كمية بدون تاريخ
+    batchesDiv.insertAdjacentHTML('beforeend',`
+      <div class="form-grid bulk-batch" style="gap:6px;margin-bottom:4px">
+        <div class="fg span-all" style="margin:0">
+          <label style="font-size:11px">الكمية *</label>
+          <input type="number" min="1" class="bulk-qty-inp" placeholder="0">
+          <input type="hidden" class="bulk-exp-sel" value="">
+        </div>
+      </div>`);
+    if(addBatchBtn) addBatchBtn.style.display='none';
+  }
 }
 
 function addBulkBatchRow(btn){
   const row=btn.closest('.bulk-row');
   const itemId=row.querySelector('.bulk-item-sel').value;
   if(!itemId){alert('اختر الصنف أولاً');return;}
+  const item=items.find(i=>i.id===itemId);
+  if(!item||!item.expiryTracked){alert('هذا الصنف لا يدعم تتبع تواريخ الصلاحية');return;}
   const batchesDiv=row.querySelector('.bulk-batches');
   batchesDiv.insertAdjacentHTML('beforeend',bulkBatchRowHtml(itemId,'',''));
 }
@@ -2825,6 +2868,32 @@ function showStockHint(){
   if(!item){hint.style.display='none';return;}
   hint.style.display='block';
   document.getElementById('stockHintVal').textContent=`${item.stock.toLocaleString()} ${item.unit}`;
+
+  const type=document.getElementById('fMovType').value;
+  const tracked=!!item.expiryTracked;
+
+  if(type==='وارد'){
+    // تاريخ صلاحية الاستلام + زر إضافة دفعة: فقط للأصناف المتتبَّعة
+    document.getElementById('expiryDateWrap').style.display=tracked?'block':'none';
+    document.getElementById('addInBatchWrap').style.display=tracked?'block':'none';
+    if(!tracked){
+      const ibc=document.getElementById('inBatchesContainer');
+      ibc.innerHTML='';ibc.style.display='none';
+    }
+  } else if(type==='صرف'){
+    // تاريخ/دفعة الصرف + توزيع: فقط للأصناف المتتبَّعة
+    const selWrap=document.getElementById('expirySelectWrap');
+    const extBC=document.getElementById('extraBatchesContainer');
+    const batchHint=document.getElementById('batchHint');
+    if(tracked){
+      selWrap.style.display='block';
+      fillExpirySelect(id);
+    } else {
+      selWrap.style.display='none';
+      if(extBC){extBC.innerHTML='';extBC.style.display='none';}
+      if(batchHint) batchHint.style.display='none';
+    }
+  }
 }
 
 function clearMovForm(keepAlert){
@@ -2864,20 +2933,25 @@ async function saveMovement(){
   // تاريخ الصلاحية والدفعات
   let parts=[];
   if(type==='وارد'){
-    parts=getInBatches();
-    if(!parts.length){
-      alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى إدخال كمية صحيحة</div>`;return;
+    const item2=items.find(i=>i.id===itemId);
+    if(item2&&item2.expiryTracked){
+      parts=getInBatches();
+      if(!parts.length){alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى إدخال كمية صحيحة</div>`;return;}
+      qty=parts.reduce((s,p)=>s+p.qty,0);
+      if(qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
+    } else {
+      parts=[{expiry:'',qty}];
     }
-    // التحقق من الكمية الإجمالية
-    qty=parts.reduce((s,p)=>s+p.qty,0);
-    if(qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
   } else {
-    const rawExp=document.getElementById('fMovExpirySelect').value;
-    if(!rawExp){
-      alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى اختيار التاريخ / الدفعة المراد الصرف منها</div>`;return;
+    const item2=items.find(i=>i.id===itemId);
+    if(item2&&item2.expiryTracked){
+      const rawExp=document.getElementById('fMovExpirySelect').value;
+      if(!rawExp){alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى اختيار التاريخ / الدفعة المراد الصرف منها</div>`;return;}
+      const expiry=(rawExp==='__NONE__')?'':rawExp;
+      parts=[{expiry,qty}];
+    } else {
+      parts=[{expiry:'',qty}];
     }
-    const expiry=(rawExp==='__NONE__')?'':rawExp;
-    parts=[{expiry,qty}];
   }
 
   if(type==='صرف'){
@@ -3252,11 +3326,13 @@ async function saveNewItem(){
     minStock:parseInt(document.getElementById('niMin').value)||50,
     unit:document.getElementById('niUnit').value,
     notes:document.getElementById('niNotes').value.trim(),
+    expiryTracked:document.getElementById('niExpiryTracked').checked,
     createdAt:new Date().toISOString()});
   save();
   await sbSaveItems();
   renderAll();closeModal('addItemModal');
   ['niName','niPage','niNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('niExpiryTracked').checked=false;
   await syncToSheets();
 }
 
@@ -3270,6 +3346,7 @@ function openEditItem(id){
   document.getElementById('eiUnit').value=item.unit;
   document.getElementById('eiNotes').value=item.notes||'';
   document.getElementById('eiTradeName').value=item.tradeName||'';
+  document.getElementById('eiExpiryTracked').checked=!!item.expiryTracked;
   openModal('editItemModal');
 }
 
@@ -3283,6 +3360,7 @@ async function updateItem(){
   item.unit=document.getElementById('eiUnit').value;
   item.notes=document.getElementById('eiNotes').value.trim();
   item.tradeName=document.getElementById('eiTradeName').value.trim();
+  item.expiryTracked=document.getElementById('eiExpiryTracked').checked;
   save();
   await sbSaveItems();
   renderAll();closeModal('editItemModal');
