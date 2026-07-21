@@ -1115,9 +1115,9 @@ body.guest-mode #orderTbody select {
                 <label>رقم إذن الصرف *</label>
                 <input type="text" id="boDoc" placeholder="مثال: ص-2025-001">
               </div>
-              <div class="fg">
+              <div class="fg" id="boPartyWrap">
                 <label>الدور / الجهة *</label>
-                <input type="text" id="boParty" placeholder="مثال: العناية المركزة — دور 3">
+                <input type="text" id="boParty" placeholder="مثال: العناية المركزة — دور 3" style="display:none">
               </div>
               <div class="fg">
                 <label>المسؤول *</label>
@@ -1126,6 +1126,11 @@ body.guest-mode #orderTbody select {
               <div class="fg">
                 <label>التاريخ *</label>
                 <input type="date" id="boDate" style="direction:ltr">
+              </div>
+              <div class="fg span-all" id="boPartyOtherWrap" style="display:none">
+                <label id="boPartyOtherLabel">تفاصيل</label>
+                <input id="boPartyOther" placeholder="مثال: سلفة إلى م. الباطنة التخصصي"
+                  oninput="document.getElementById('boParty').value='أخرى — '+this.value">
               </div>
               <div class="fg span-all">
                 <label>ملاحظات</label>
@@ -2417,6 +2422,7 @@ function onMovTypeChange(){
     if(!document.getElementById('boDate').value)
       document.getElementById('boDate').value=new Date().toISOString().split('T')[0];
     if(!document.getElementById('bulkRowsContainer').children.length) addBulkRow();
+    fillBulkPartyDropdown();
     return;
   }
   document.getElementById('fDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
@@ -2508,6 +2514,34 @@ function calcBatchStock(itemId){
   }
 
   return batches;
+}
+
+// تحويل خريطة الدفعات (من calcBatchStock) إلى مصفوفة {expiry, qty}
+// expiry='' تعني "بدون تاريخ صلاحية" (بدل __nodate__ المستخدمة داخلياً في calcBatchStock)
+function computeItemBatches(item){
+  if(!item) return [];
+  const batches = calcBatchStock(item.id);
+  return Object.entries(batches)
+    .map(function([key,qty]){
+      return {expiry:(key==='__nodate__')?'':key, qty:qty};
+    })
+    .filter(function(b){ return b.qty > 0; })
+    .sort(function(a,b){
+      return (a.expiry||'9999-99-99').localeCompare(b.expiry||'9999-99-99');
+    });
+}
+
+// تسمية عرض لدفعة/تاريخ صلاحية معين، تُستخدم في رسائل التنبيه
+function batchLabel(expiry){
+  return expiry ? ('صلاحية '+expiry) : 'بدون تاريخ صلاحية';
+}
+
+// السنة المالية لحركة بتاريخ معين (لا يوجد إعداد لبداية سنة مالية مخصصة حالياً،
+// فتُستخدم السنة الميلادية كقيمة افتراضية آمنة)
+function getFiscalYear(dateStr){
+  if(!dateStr) return null;
+  const y = parseInt(String(dateStr).substring(0,4), 10);
+  return isNaN(y) ? null : y;
 }
 
 // ═══════════════════ BULK ORDER (صرف إذن كامل) ═══════════════════
@@ -2614,6 +2648,9 @@ function addBulkBatchRow(btn){
 function clearBulkForm(){
   document.getElementById('boDoc').value='';
   document.getElementById('boParty').value='';
+  const boSel=document.getElementById('boPartySelect');if(boSel)boSel.selectedIndex=0;
+  const boOi=document.getElementById('boPartyOther');if(boOi)boOi.value='';
+  const boOw=document.getElementById('boPartyOtherWrap');if(boOw)boOw.style.display='none';
   document.getElementById('boStaff').selectedIndex=0;
   document.getElementById('boDate').value=new Date().toISOString().split('T')[0];
   document.getElementById('boNotes').value='';
@@ -2621,6 +2658,7 @@ function clearBulkForm(){
   document.getElementById('bulkSummary').style.display='none';
   document.getElementById('movFormAlert').innerHTML='';
   addBulkRow();
+  fillBulkPartyDropdown();
 }
 
 async function saveBulkOrder(){
@@ -2628,7 +2666,13 @@ async function saveBulkOrder(){
   const party=document.getElementById('boParty').value.trim();
   const staffId=document.getElementById('boStaff').value;
   const date=document.getElementById('boDate').value;
-  const notes=document.getElementById('boNotes').value.trim();
+  let notes=document.getElementById('boNotes').value.trim();
+  const boOtherWrapEl=document.getElementById('boPartyOtherWrap');
+  const boOtherInpEl=document.getElementById('boPartyOther');
+  if(boOtherWrapEl&&boOtherWrapEl.style.display!=='none'&&boOtherInpEl&&boOtherInpEl.value.trim()){
+    const otherDetail=boOtherInpEl.value.trim();
+    notes=notes?otherDetail+' — '+notes:otherDetail;
+  }
   const alertEl=document.getElementById('movFormAlert');
   if(!docNo||!party||!staffId||!date){
     alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى تعبئة رقم الإذن والجهة والمسؤول والتاريخ</div>`;return;
@@ -4439,6 +4483,79 @@ function fillPartyDropdown(){
   sel.appendChild(addOpt);
 
   // استعادة القيمة السابقة لو موجودة
+  if(currentVal && parties.includes(currentVal)){
+    sel.value = currentVal;
+  }
+}
+
+// نفس فكرة fillPartyDropdown لكن لفورم صرف الإذن الكامل (بولك)، وهو دايماً من نوع "صرف"
+function fillBulkPartyDropdown(){
+  const partyField = document.getElementById('boPartyWrap');
+  if(!partyField) return;
+
+  const parties = getPartyList('صرف');
+  const currentVal = document.getElementById('boParty').value;
+
+  let sel = document.getElementById('boPartySelect');
+  if(!sel){
+    const inp = document.getElementById('boParty');
+    sel = document.createElement('select');
+    sel.id = 'boPartySelect';
+    sel.style.cssText = 'width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:Cairo,sans-serif;font-size:14px';
+    sel.onchange = function(){
+      const otherWrap = document.getElementById('boPartyOtherWrap');
+      if(this.value === '__add_new__'){
+        const newParty = prompt('أدخل اسم الجهة الجديدة:');
+        if(newParty && newParty.trim()){
+          if(!customParties.out.includes(newParty.trim())){
+            customParties.out.push(newParty.trim());
+            saveCustomParties();
+          }
+          document.getElementById('boParty').value = newParty.trim();
+          fillBulkPartyDropdown();
+          document.getElementById('boPartySelect').value = newParty.trim();
+        } else {
+          this.value = '';
+        }
+        if(otherWrap) otherWrap.style.display='none';
+      } else if(this.value === '__other__'){
+        document.getElementById('boParty').value = 'أخرى';
+        if(otherWrap){
+          otherWrap.style.display='block';
+          const lbl=document.getElementById('boPartyOtherLabel');
+          const inp2=document.getElementById('boPartyOther');
+          if(lbl) lbl.textContent='تفاصيل (سلفة لـ / تصليح خطأ...)';
+          if(inp2) inp2.placeholder='مثال: سلفة إلى م. الباطنة التخصصي';
+        }
+      } else {
+        document.getElementById('boParty').value = this.value;
+        if(otherWrap) otherWrap.style.display='none';
+      }
+    };
+    inp.style.display = 'none';
+    inp.parentNode.insertBefore(sel, inp);
+  }
+
+  const label = '— اختر الجهة / الدور —';
+  sel.innerHTML = `<option value="">${label}</option>`;
+  parties.forEach(function(p){
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  });
+  const otherOpt = document.createElement('option');
+  otherOpt.value = '__other__';
+  otherOpt.textContent = '📝 أخرى';
+  otherOpt.style.fontWeight = '700';
+  sel.appendChild(otherOpt);
+
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add_new__';
+  addOpt.textContent = '+ إضافة جهة جديدة...';
+  addOpt.style.color = 'var(--teal)';
+  addOpt.style.fontWeight = '700';
+  sel.appendChild(addOpt);
+
   if(currentVal && parties.includes(currentVal)){
     sel.value = currentVal;
   }
