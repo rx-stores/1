@@ -233,6 +233,8 @@ tbody tr:last-child td{border-bottom:none}
 
 /* ═══════════════ FORMS ═══════════════ */
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.bulk-batch .form-grid{grid-template-columns:1fr 100px auto}
+@media(max-width:500px){.bulk-batch .form-grid{grid-template-columns:1fr}}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg label{font-size:12px;font-weight:600;color:var(--text2)}
 .fg input,.fg select,.fg textarea{
@@ -1033,14 +1035,20 @@ body.guest-mode #orderTbody select {
         </div>
         <div class="card-body">
           <div id="movFormAlert"></div>
+
+          <!-- اختيار نوع الحركة -->
+          <div class="fg" style="margin-bottom:16px">
+            <label>نوع الحركة *</label>
+            <select id="fMovType" onchange="onMovTypeChange()">
+              <option value="صرف">📤 صرف — إذن صرف (صنف واحد)</option>
+              <option value="صرف-إذن-كامل">📋 صرف — إذن كامل (أصناف متعددة)</option>
+              <option value="وارد">📥 وارد — فاتورة استلام</option>
+            </select>
+          </div>
+
+          <!-- ══ فورم الحركة المنفردة ══ -->
+          <div id="singleMovForm">
           <div class="form-grid">
-            <div class="fg">
-              <label>نوع الحركة *</label>
-              <select id="fMovType" onchange="onMovTypeChange()">
-                <option value="صرف">📤 صرف — إذن صرف</option>
-                <option value="وارد">📥 وارد — فاتورة استلام</option>
-              </select>
-            </div>
             <div class="fg">
               <label>الصنف *</label>
               <select id="fMovItem" onchange="showStockHint();updateExpiryVisibility()">
@@ -1098,11 +1106,49 @@ body.guest-mode #orderTbody select {
             <button class="btn btn-teal" onclick="saveMovement()">💾 تسجيل الحركة</button>
             <button class="btn btn-ghost" onclick="clearMovForm()">↺ مسح</button>
           </div>
+          </div><!-- /singleMovForm -->
+
+          <!-- ══ فورم صرف الإذن الكامل ══ -->
+          <div id="bulkOrderForm" style="display:none">
+            <div class="form-grid">
+              <div class="fg">
+                <label>رقم إذن الصرف *</label>
+                <input type="text" id="boDoc" placeholder="مثال: ص-2025-001">
+              </div>
+              <div class="fg">
+                <label>الدور / الجهة *</label>
+                <input type="text" id="boParty" placeholder="مثال: العناية المركزة — دور 3">
+              </div>
+              <div class="fg">
+                <label>المسؤول *</label>
+                <select id="boStaff"><option value="">— اختر الموظف —</option></select>
+              </div>
+              <div class="fg">
+                <label>التاريخ *</label>
+                <input type="date" id="boDate" style="direction:ltr">
+              </div>
+              <div class="fg span-all">
+                <label>ملاحظات</label>
+                <textarea id="boNotes" rows="2" placeholder="أي ملاحظات إضافية..."></textarea>
+              </div>
+            </div>
+            <div style="margin-top:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <strong style="color:var(--teal)">📦 أصناف الإذن</strong>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="addBulkRow()">➕ إضافة صنف</button>
+              </div>
+              <div id="bulkRowsContainer"></div>
+            </div>
+            <div id="bulkSummary" style="display:none;margin-top:12px"></div>
+            <div style="display:flex;gap:8px;margin-top:16px">
+              <button class="btn btn-teal" onclick="saveBulkOrder()">💾 تسجيل الإذن كاملاً</button>
+              <button class="btn btn-ghost" onclick="clearBulkForm()">↺ مسح</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
-
-    <!-- ══════════ INVENTORY / JARD ══════════ -->
     <div id="page-inventory" class="page">
       <div class="jard-header">
         <h2>🔍 نظام الجرد الذكي</h2>
@@ -2362,11 +2408,23 @@ function renderDash(){
 // ═══════════════════ ADD MOVEMENT ═══════════════════
 function onMovTypeChange(){
   const t=document.getElementById('fMovType').value;
+  const isBulk=(t==='صرف-إذن-كامل');
+  document.getElementById('singleMovForm').style.display=isBulk?'none':'block';
+  document.getElementById('bulkOrderForm').style.display=isBulk?'block':'none';
+  if(isBulk){
+    const boStaff=document.getElementById('boStaff');
+    boStaff.innerHTML='<option value="">— اختر الموظف —</option>'+staff.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+    if(!document.getElementById('boDate').value)
+      document.getElementById('boDate').value=new Date().toISOString().split('T')[0];
+    if(!document.getElementById('bulkRowsContainer').children.length) addBulkRow();
+    return;
+  }
   document.getElementById('fDocLabel').textContent=t==='صرف'?'رقم إذن الصرف *':'رقم الفاتورة *';
   document.getElementById('fPartyLabel').textContent=t==='صرف'?'الدور / الجهة *':'اسم الشركة *';
-  // تاريخ الصلاحية — بس للأصناف المحددة
   updateExpiryVisibility();
-  // تحديث dropdown الجهات
+  // إعادة بناء dropdown الجهات حسب النوع الجديد
+  const selEl=document.getElementById('fMovPartySelect');
+  if(selEl) selEl.remove(); // نمسح الـ select القديم عشان يتبنى بالنوع الصح
   fillPartyDropdown();
 }
 
@@ -2450,6 +2508,205 @@ function calcBatchStock(itemId){
   }
 
   return batches;
+}
+
+// ═══════════════════ BULK ORDER (صرف إذن كامل) ═══════════════════
+
+function bulkRowHtml(rowIdx){
+  const itemOptions=([...items].sort((a,b)=>a.page-b.page))
+    .map(i=>`<option value="${i.id}">${i.page} — ${i.name}</option>`).join('');
+  return `<div class="bulk-row" data-rowIdx="${rowIdx}" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <strong style="font-size:12px;color:var(--text2)">صنف #${rowIdx+1}</strong>
+      <button type="button" class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="removeBulkRow(this)" title="حذف هذا الصنف">🗑</button>
+    </div>
+    <div class="form-grid" style="gap:8px">
+      <div class="fg span-all" style="margin:0">
+        <label style="font-size:11px">الصنف *</label>
+        <select class="bulk-item-sel" onchange="onBulkItemChange(this)">
+          <option value="">— اختر الصنف —</option>
+          ${itemOptions}
+        </select>
+      </div>
+    </div>
+    <div class="bulk-batches" style="margin-top:6px"></div>
+    <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px;font-size:11px" onclick="addBulkBatchRow(this)">➕ إضافة دفعة/تاريخ آخر</button>
+  </div>`;
+}
+
+function bulkBatchRowHtml(itemId,selectedExpiry,qty){
+  const item=items.find(i=>i.id===itemId);
+  if(!item) return '';
+  const batches=computeItemBatches(item);
+  const expirySet=new Map();
+  batches.forEach(b=>expirySet.set(b.expiry,b.qty));
+  if(selectedExpiry!==undefined&&!expirySet.has(selectedExpiry||''))
+    expirySet.set(selectedExpiry||'',0);
+  const sorted=[...expirySet.entries()].sort((a,b)=>(a[0]||'9999-99-99').localeCompare(b[0]||'9999-99-99'));
+  const expOpts=sorted.map(([exp,q])=>{
+    const val=exp?exp:'__NONE__';
+    const label=(exp?('صلاحية '+exp):'بدون تاريخ صلاحية')+(q>0?(' — متاح: '+q.toLocaleString()+' '+item.unit):'');
+    const sel=((selectedExpiry||'')===exp)?'selected':'';
+    return `<option value="${val}" ${sel}>${label}</option>`;
+  }).join('');
+  return `<div class="form-grid bulk-batch" style="gap:6px;margin-bottom:4px;align-items:end">
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">تاريخ / دفعة *</label>
+      <select class="bulk-exp-sel">${expOpts}</select>
+    </div>
+    <div class="fg" style="margin:0">
+      <label style="font-size:11px">الكمية *</label>
+      <input type="number" min="1" class="bulk-qty-inp" placeholder="0" value="${qty||''}">
+    </div>
+    <div style="margin:0">
+      <button type="button" class="btn btn-icon btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,0.3)" onclick="this.closest('.bulk-batch').remove()" title="حذف">🗑</button>
+    </div>
+  </div>`;
+}
+
+function addBulkRow(){
+  const container=document.getElementById('bulkRowsContainer');
+  const idx=container.querySelectorAll('.bulk-row').length;
+  container.insertAdjacentHTML('beforeend',bulkRowHtml(idx));
+}
+
+function removeBulkRow(btn){
+  btn.closest('.bulk-row').remove();
+  document.querySelectorAll('#bulkRowsContainer .bulk-row strong').forEach((el,i)=>{
+    el.textContent=`صنف #${i+1}`;
+  });
+}
+
+function onBulkItemChange(sel){
+  const row=sel.closest('.bulk-row');
+  const batchesDiv=row.querySelector('.bulk-batches');
+  const addBatchBtn=row.querySelector('button[onclick="addBulkBatchRow(this)"]');
+  batchesDiv.innerHTML='';
+  const itemId=sel.value;
+  if(!itemId) return;
+  const item=items.find(i=>i.id===itemId);
+  const tracked=item&&itemNeedsExpiry(itemId);
+  if(tracked){
+    batchesDiv.insertAdjacentHTML('beforeend',bulkBatchRowHtml(itemId,'',''));
+    if(addBatchBtn) addBatchBtn.style.display='';
+  } else {
+    batchesDiv.insertAdjacentHTML('beforeend',`
+      <div class="form-grid bulk-batch" style="gap:6px;margin-bottom:4px">
+        <div class="fg span-all" style="margin:0">
+          <label style="font-size:11px">الكمية *</label>
+          <input type="number" min="1" class="bulk-qty-inp" placeholder="0">
+          <input type="hidden" class="bulk-exp-sel" value="">
+        </div>
+      </div>`);
+    if(addBatchBtn) addBatchBtn.style.display='none';
+  }
+}
+
+function addBulkBatchRow(btn){
+  const row=btn.closest('.bulk-row');
+  const itemId=row.querySelector('.bulk-item-sel').value;
+  if(!itemId){alert('اختر الصنف أولاً');return;}
+  if(!itemNeedsExpiry(itemId)){alert('هذا الصنف لا يدعم تتبع تواريخ الصلاحية');return;}
+  const batchesDiv=row.querySelector('.bulk-batches');
+  batchesDiv.insertAdjacentHTML('beforeend',bulkBatchRowHtml(itemId,'',''));
+}
+
+function clearBulkForm(){
+  document.getElementById('boDoc').value='';
+  document.getElementById('boParty').value='';
+  document.getElementById('boStaff').selectedIndex=0;
+  document.getElementById('boDate').value=new Date().toISOString().split('T')[0];
+  document.getElementById('boNotes').value='';
+  document.getElementById('bulkRowsContainer').innerHTML='';
+  document.getElementById('bulkSummary').style.display='none';
+  document.getElementById('movFormAlert').innerHTML='';
+  addBulkRow();
+}
+
+async function saveBulkOrder(){
+  const docNo=document.getElementById('boDoc').value.trim();
+  const party=document.getElementById('boParty').value.trim();
+  const staffId=document.getElementById('boStaff').value;
+  const date=document.getElementById('boDate').value;
+  const notes=document.getElementById('boNotes').value.trim();
+  const alertEl=document.getElementById('movFormAlert');
+  if(!docNo||!party||!staffId||!date){
+    alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى تعبئة رقم الإذن والجهة والمسؤول والتاريخ</div>`;return;
+  }
+  const staffMem=staff.find(s=>s.id===staffId);
+  const rows=[...document.getElementById('bulkRowsContainer').querySelectorAll('.bulk-row')];
+  if(!rows.length){alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى إضافة صنف واحد على الأقل</div>`;return;}
+
+  const orderLines=[];
+  for(const row of rows){
+    const itemId=row.querySelector('.bulk-item-sel').value;
+    if(!itemId) continue;
+    const item=items.find(i=>i.id===itemId);
+    const batches=[...row.querySelectorAll('.bulk-batch')].map(b=>({
+      expiry:(b.querySelector('.bulk-exp-sel').value||'')==='__NONE__'?'':(b.querySelector('.bulk-exp-sel').value||''),
+      qty:parseFloat(b.querySelector('.bulk-qty-inp').value)||0
+    })).filter(b=>b.qty>0);
+    if(!batches.length) continue;
+    orderLines.push({item,batches});
+  }
+  if(!orderLines.length){alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى إدخال كمية صحيحة لصنف واحد على الأقل</div>`;return;}
+
+  const toSave=[];
+  const blocked=[];
+  for(const line of orderLines){
+    const {item,batches}=line;
+    const allBatches=computeItemBatches(item);
+    const lineParts=[];
+    let lineBlocked=false;
+    let blockReason='';
+    for(const b of batches){
+      const batchData=allBatches.find(x=>x.expiry===b.expiry);
+      const available=batchData?batchData.qty:0;
+      if(b.qty>available){
+        lineBlocked=true;
+        blockReason=`الكمية المطلوبة ${b.qty.toLocaleString()} ${item.unit} من ${batchLabel(b.expiry)} أكبر من المتاح (${available.toLocaleString()} ${item.unit})`;
+        break;
+      }
+      lineParts.push({expiry:b.expiry,qty:b.qty});
+    }
+    if(lineBlocked) blocked.push({item,reason:blockReason});
+    else toSave.push({item,parts:lineParts});
+  }
+
+  const savedNames=[];
+  const createdAt=new Date().toISOString();
+  for(const line of toSave){
+    movCounter++;
+    const serial=movCounter;
+    for(const p of line.parts){
+      const mov={
+        id:'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        serial,type:'صرف',itemId:line.item.id,itemName:line.item.name,
+        qty:p.qty,docNo,party,staffId,staffName:staffMem.name,
+        date,notes,expiry:p.expiry,
+        archived:false,fiscalYear:getFiscalYear(date),createdAt
+      };
+      movements.push(mov);
+      line.item.stock-=p.qty;
+      await sbSaveMovement(mov);
+    }
+    savedNames.push(`${line.item.name} (${line.parts.reduce((s,p)=>s+p.qty,0).toLocaleString()} ${line.item.unit})`);
+  }
+  if(toSave.length){save();await sbSaveItems();renderAll();}
+
+  const summaryEl=document.getElementById('bulkSummary');
+  summaryEl.style.display='block';
+  let html='';
+  if(savedNames.length){
+    html+=`<div class="alert alert-green">✅ تم تسجيل ${savedNames.length} صنف بنجاح:<br>${savedNames.map(n=>'• '+n).join('<br>')}</div>`;
+  }
+  if(blocked.length){
+    html+=`<div class="alert alert-amber" style="margin-top:8px">⚠️ ${blocked.length} صنف موقوف بسبب نقص الرصيد:<br>${blocked.map(b=>`• ${b.item.name}: ${b.reason}`).join('<br>')}</div>`;
+  }
+  summaryEl.innerHTML=html;
+  alertEl.innerHTML='';
+  if(!blocked.length) setTimeout(()=>{clearBulkForm();},2500);
+  await syncToSheets();
 }
 
 function fillExpirySelect(itemId){
