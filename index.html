@@ -1277,6 +1277,25 @@ body.guest-mode #orderTbody select {
     <!-- ══════════ SETTINGS ══════════ -->
     <div id="page-settings" class="page">
 
+      <!-- أداة تصحيح رصيد لمرة واحدة (أذون 17-21) -->
+      <div class="card" style="margin-bottom:16px;border:2px solid var(--red)">
+        <div class="card-header" style="background:rgba(214,48,49,0.08)">
+          <div class="card-title" style="color:var(--red)">🔧 تصحيح الرصيد — أذون 17 إلى 21</div>
+        </div>
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.8">
+            هذه الأداة تخصم الكميات التالية من رصيد الأصناف المذكورة <strong>بدون</strong> إضافة أي حركة جديدة لسجل الحركات
+            (الحركات نفسها مسجلة بالفعل ولن تتكرر). استخدمها مرة واحدة فقط لتصحيح تأثير مشكلة عدم الخصم في الأذون 17-21.
+          </p>
+          <div id="stockFixPreview" style="font-size:13px;line-height:2;margin-bottom:12px"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-ghost" onclick="previewStockFix17to21()">👁 معاينة قبل التطبيق</button>
+            <button class="btn btn-red" onclick="applyStockFix17to21()">🔧 تطبيق التصحيح الآن</button>
+            <span id="stockFixMsg" style="font-size:12px;color:var(--text2)"></span>
+          </div>
+        </div>
+      </div>
+
       <!-- إغلاق السنة المالية -->
       <div class="card" style="margin-bottom:16px;border:2px solid var(--amber)">
         <div class="card-header" style="background:rgba(240,165,0,0.08)">
@@ -3251,6 +3270,79 @@ async function updateItem(){
   await syncToSheets();
 }
 
+// ═══════════════════ تصحيح رصيد لمرة واحدة — أذون 17-21 ═══════════════════
+// هذه الكميات هي مجموع ما صُرف فعلياً في الأذون 17 إلى 21 (تم تسجيل الحركات
+// وقت وجود عطل في الكود منع خصمها من الرصيد). القائمة هنا لتصحيح الرصيد فقط
+// ولا تُنشئ أي حركة جديدة في سجل الحركات.
+const STOCK_FIX_17_21 = [
+  {match:['ملح','0.9%','100'], label:'ملح 0.9% 100 ملي', qty:270},
+  {match:['جلوكوز','10%'],     label:'جلوكوز 10%',        qty:120},
+  {match:['بيدمنت','250'],     label:'بيدمنت 250 ملي',    qty:80},
+  {match:['ملح','0.9%','500'], label:'ملح 0.9% 500 ملي',  qty:1720},
+  {exact:'رنجر',               label:'رينجر',             qty:300},
+  {match:['جلوكوز','5%'],      label:'جلوكوز 5%',         qty:140},
+  {match:['غسيل جراحي'],       label:'ملح غسيل جراحي 1 لتر', qty:60},
+  {match:['جلوكوز','25%'],     label:'جلوكوز 25%',        qty:20},
+  {match:['بيكربونات'],        label:'بيكربونات صوديوم',   qty:60},
+];
+
+// إيجاد الصنف المطابق لكل سطر تصحيح، مع رفض أي تطابق غامض (أكثر من نتيجة)
+function resolveStockFixItems(){
+  return STOCK_FIX_17_21.map(function(fix){
+    const matches = items.filter(function(i){
+      if(fix.exact) return i.name === fix.exact;
+      return fix.match.every(function(term){ return i.name.includes(term); });
+    });
+    return {
+      fix,
+      item: matches.length===1 ? matches[0] : null,
+      ambiguous: matches.length>1,
+      matchCount: matches.length
+    };
+  });
+}
+
+function previewStockFix17to21(){
+  const resolved = resolveStockFixItems();
+  const rows = resolved.map(function(r){
+    if(!r.item){
+      const status = r.ambiguous ? `⚠️ تطابق أكثر من صنف (${r.matchCount}) — لن يتم تعديله` : '⚠️ لم يتم العثور على الصنف';
+      return `<div style="color:var(--amber)">${r.fix.label}: ${status}</div>`;
+    }
+    const newStock = r.item.stock - r.fix.qty;
+    const warn = newStock < 0 ? ' <span style="color:var(--red)">(سيصبح سالباً ⚠️)</span>' : '';
+    return `<div><strong>${r.item.name}</strong>: ${r.item.stock.toLocaleString()} − ${r.fix.qty.toLocaleString()} = <strong>${newStock.toLocaleString()}</strong>${warn}</div>`;
+  });
+  document.getElementById('stockFixPreview').innerHTML = rows.join('');
+  document.getElementById('stockFixMsg').textContent = '';
+}
+
+async function applyStockFix17to21(){
+  const resolved = resolveStockFixItems();
+  const unresolved = resolved.filter(r=>!r.item);
+  if(unresolved.length){
+    previewStockFix17to21();
+    document.getElementById('stockFixMsg').innerHTML =
+      `<span style="color:var(--red)">⚠️ يوجد ${unresolved.length} صنف لم يتم تحديده تلقائياً — راجع المعاينة أعلاه قبل المتابعة، أو عدّل الرصيد يدوياً لهذه الأصناف من صفحة الأصناف.</span>`;
+  }
+  const toFix = resolved.filter(r=>r.item);
+  if(!toFix.length){
+    document.getElementById('stockFixMsg').innerHTML = `<span style="color:var(--red)">لم يتم تعديل أي صنف.</span>`;
+    return;
+  }
+  if(!confirm(`سيتم خصم الكميات من ${toFix.length} صنف بدون إضافة أي حركة جديدة. هل أنت متأكد؟`)) return;
+  toFix.forEach(function(r){
+    r.item.stock = r.item.stock - r.fix.qty;
+  });
+  save();
+  await sbSaveItems();
+  renderAll();
+  await syncToSheets();
+  previewStockFix17to21();
+  document.getElementById('stockFixMsg').innerHTML =
+    `<span style="color:var(--green)">✅ تم تصحيح رصيد ${toFix.length} صنف بنجاح.</span>`;
+}
+
 // ═══════════════════ ITEM MOVEMENTS VIEW ═══════════════════
 function viewItemMov(itemId){
   currentItemId=itemId;
@@ -3293,6 +3385,26 @@ function quick(itemId,type){
 }
 
 // ═══════════════════ FILL SELECTS ═══════════════════
+// إغلاق السنة المالية الحالية: تجميد (أرشفة) حركات السنة الحالية
+async function closeFiscalYear(){
+  const fy=getCurrentFiscalYear();
+  const toClose=movements.filter(m=>{
+    const y=m.fiscalYear||(m.date?parseInt(String(m.date).substring(0,4),10):null);
+    return String(y)===String(fy) && !m.archived;
+  });
+  const msgEl=document.getElementById('fiscalCloseMsg');
+  if(!toClose.length){
+    if(msgEl) msgEl.innerHTML='<span style="color:var(--text2)">لا توجد حركات غير مؤرشفة في السنة المالية الحالية.</span>';
+    return;
+  }
+  if(!confirm(`سيتم تجميد ${toClose.length} حركة من السنة المالية ${fy}. هذا الإجراء لا يحذف الحركات، فقط يؤرشفها. هل أنت متأكد؟`)) return;
+  toClose.forEach(m=>{ m.archived=true; });
+  save();
+  for(const m of toClose){ await sbSaveMovement(m); }
+  renderAll();
+  if(msgEl) msgEl.innerHTML=`<span style="color:var(--green)">✅ تم تجميد ${toClose.length} حركة من السنة المالية ${fy}.</span>`;
+}
+
 function fillSelects(){
   const sorted=[...items].sort((a,b)=>a.page-b.page);
   const opts=sorted.map(i=>`<option value="${i.id}">${i.page} — ${i.name}</option>`).join('');
@@ -3306,6 +3418,57 @@ function fillSelects(){
   // تحديث حالة السنة المالية في الإعدادات
   const statusEl=document.getElementById('fiscalYearStatus');
   if(statusEl){const fy=getCurrentFiscalYear();statusEl.innerHTML=`<span class="badge badge-amber">السنة المالية الحالية: ${fy}</span>`;}
+}
+
+// السنة المالية الحالية (لا يوجد إعداد لبداية سنة مالية مخصصة، فتُستخدم السنة الميلادية الحالية)
+function getCurrentFiscalYear(){
+  return new Date().getFullYear();
+}
+
+// تعبئة قائمة فلتر "السنة المالية" في سجل الحركات بكل السنوات الموجودة فعلياً في الحركات
+function fillFiscalFilter(){
+  const sel=document.getElementById('movFiscalF');
+  if(!sel) return;
+  const v=sel.value;
+  const years=[...new Set(movements.map(m=>{
+    if(m.fiscalYear) return m.fiscalYear;
+    const y=m.date?parseInt(String(m.date).substring(0,4),10):null;
+    return isNaN(y)?null:y;
+  }).filter(y=>y))].sort((a,b)=>b-a);
+  sel.innerHTML='<option value="">كل السنوات</option>'+years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  if(v && years.some(y=>String(y)===String(v))) sel.value=v;
+}
+
+// فلترة سجل الحركات حسب: البحث النصي، النوع، الشهر، الصنف، والسنة المالية
+function filterMovements(){
+  const searchEl=document.getElementById('movSearch');
+  const typeEl=document.getElementById('movTypeF');
+  const monthEl=document.getElementById('movMonthF');
+  const itemEl=document.getElementById('movItemF');
+  const fiscalEl=document.getElementById('movFiscalF');
+  if(!searchEl||!typeEl||!monthEl||!itemEl) return;
+
+  const q=searchEl.value.trim().toLowerCase();
+  const t=typeEl.value;
+  const mn=monthEl.value;
+  const it=itemEl.value;
+  const fy=fiscalEl?fiscalEl.value:'';
+
+  let list=[...movements];
+  if(q) list=list.filter(m=>
+    (m.itemName||'').toLowerCase().includes(q)||
+    (m.docNo||'').toLowerCase().includes(q)||
+    (m.party||'').toLowerCase().includes(q)||
+    (m.staffName||'').toLowerCase().includes(q));
+  if(t) list=list.filter(m=>m.type===t);
+  if(mn) list=list.filter(m=>m.date&&m.date.startsWith(mn));
+  if(it) list=list.filter(m=>m.itemId===it);
+  if(fy) list=list.filter(m=>{
+    const y=m.fiscalYear||(m.date?parseInt(String(m.date).substring(0,4),10):null);
+    return String(y)===String(fy);
+  });
+
+  renderMovTable(applyMovSort(list));
 }
 
 // ═══════════════════ GOOGLE SHEETS ═══════════════════
