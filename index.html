@@ -2761,7 +2761,7 @@ async function saveBulkOrder(){
   summaryEl.style.display='block';
   let html='';
   if(savedNames.length){
-    html+=`<div class="alert alert-green">✅ تم تسجيل ${savedNames.length} صنف بنجاح:<br>${savedNames.map(n=>'• '+n).join('<br>')}</div>`;
+    html+=`<div class="alert alert-blue">✅ تم تسجيل ${savedNames.length} صنف بنجاح:<br>${savedNames.map(n=>'• '+n).join('<br>')}</div>`;
   }
   if(blocked.length){
     html+=`<div class="alert alert-amber" style="margin-top:8px">⚠️ ${blocked.length} صنف موقوف بسبب نقص الرصيد:<br>${blocked.map(b=>`• ${b.item.name}: ${b.reason}`).join('<br>')}</div>`;
@@ -2899,7 +2899,7 @@ async function saveMovement(){
   await sbSaveMovement(mov);
   await sbSaveItems();
   renderAll();
-  alertEl.innerHTML=`<div class="alert alert-green">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
+  alertEl.innerHTML=`<div class="alert alert-blue">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
   clearMovForm();
   await syncToSheets();
 }
