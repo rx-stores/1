@@ -1533,7 +1533,7 @@ function syncFromSupabase() {
               <select id="analyticsPeriod" onchange="renderAnalytics()"
                 style="padding:8px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif">
                 <option value="all">كل الوقت</option>
-                <option value="1">آخر شهر</option>
+                <option value="1">الشهر الحالي</option>
                 <option value="3">آخر 3 شهور</option>
                 <option value="6">آخر 6 شهور</option>
                 <option value="12">آخر سنة</option>
@@ -4746,6 +4746,31 @@ function toggleChartItem(name, idx){
   drawAnalyticsChart(_chartItemList, _chartColors, _chartMovs);
 }
 
+// استخراج الشهر واليوم من تاريخ الحركة بطريقة مقاومة لاختلاف الصيغة
+// (بدل الاعتماد على قص نصي ثابت المكان، اللي بيتكسر لو التاريخ متسجل بصيغة مختلفة شوية زي وجود وقت بعده أو يوم/شهر برقم واحد)
+// معرّفة هنا (خارج drawAnalyticsChart) عشان تُستخدم بنفس منطق حساب الأسبوع في كل مكان محتاجه
+function parseMovDate(dateStr){
+  if(!dateStr) return null;
+  const m = String(dateStr).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){
+    const mo = ('0'+m[2]).slice(-2);
+    return { monthKey: m[1]+'-'+mo, day: parseInt(m[3],10) };
+  }
+  const d = new Date(dateStr);
+  if(!isNaN(d.getTime())){
+    const mo = ('0'+(d.getMonth()+1)).slice(-2);
+    return { monthKey: d.getFullYear()+'-'+mo, day: d.getDate() };
+  }
+  return null;
+}
+// كل شهر بيتقسم لـ 4 أسابيع: 1-7 / 8-14 / 15-21 / 22-آخر الشهر
+function weekOfDay(day){
+  if(day<=7) return 1;
+  if(day<=14) return 2;
+  if(day<=21) return 3;
+  return 4;
+}
+
 function drawAnalyticsChart(itemList, colors, allMovs){
   // حفظ البيانات عالمياً لاستخدامها في toggleChartItem
   _chartItemList = itemList;
@@ -4765,83 +4790,132 @@ function drawAnalyticsChart(itemList, colors, allMovs){
     ? itemList.filter(function(i){ return selectedChartItems.includes(i.name); })
     : itemList;
 
+  const tooltip = document.getElementById('chartTooltip');
+  if(tooltip) tooltip.style.display = 'none';
+
   if(!filtered.length){ canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); return; }
 
-  // حساب الشهور الموجودة في الحركات (آخر 6 شهور أو كل الشهور المتاحة)
+  // حساب الشهور الموجودة في الحركات
   const monthSet = new Set();
-  allMovs.forEach(function(m){ if(m.date) monthSet.add(m.date.slice(0,7)); });
+  allMovs.forEach(function(m){
+    const p = parseMovDate(m.date);
+    if(p) monthSet.add(p.monthKey);
+  });
   const months = [...monthSet].sort();
   if(!months.length) return;
 
-  // كمية كل صنف في كل شهر
-  const monthlyData = {};
+  const buckets = [];
+  months.forEach(function(mo){
+    for(var w=1; w<=4; w++){ buckets.push({ key: mo+'-w'+w, month: mo, week: w }); }
+  });
+
+  // كمية كل صنف في كل أسبوع — مفتاح كل صنف هو id الفريد بتاعه (مش الاسم) عشان
+  // لو فيه صنفين ليهم نفس الاسم بالظبط بس id مختلف، الكميات متتلخبطش مع بعضها
+  const weeklyData = {};
   filtered.forEach(function(item){
-    monthlyData[item.name] = {};
-    months.forEach(function(mo){ monthlyData[item.name][mo] = 0; });
+    const itemKey = item.id !== undefined ? item.id : item.name;
+    weeklyData[itemKey] = {};
+    buckets.forEach(function(b){ weeklyData[itemKey][b.key] = 0; });
     (item.movs||[]).forEach(function(m){
-      const mo = m.date ? m.date.slice(0,7) : null;
-      if(mo && monthlyData[item.name][mo] !== undefined)
-        monthlyData[item.name][mo] += m.qty;
+      const p = parseMovDate(m.date);
+      if(!p) return;
+      const key = p.monthKey+'-w'+weekOfDay(p.day);
+      if(weeklyData[itemKey][key] !== undefined)
+        weeklyData[itemKey][key] += (Number(m.qty)||0);
     });
   });
 
+  // --- إعداد الكانفاس بدقة عالية (يمنع التبكسل/الزغللة على شاشات الموبايل) ---
+  const dpr = window.devicePixelRatio || 1;
   const W = canvas.parentElement.clientWidth - 20;
   const H = 300;
-  canvas.width = Math.max(W, 400);
-  canvas.height = H;
+  const displayW = Math.max(W, buckets.length*38);
+  const displayH = H;
+  canvas.style.width = displayW + 'px';
+  canvas.style.height = displayH + 'px';
+  canvas.width = Math.round(displayW * dpr);
+  canvas.height = Math.round(displayH * dpr);
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0,0,W,H);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, displayW, displayH);
 
-  const PAD = {top:30, right:30, bottom:55, left:52};
-  const cW = canvas.width - PAD.left - PAD.right;
-  const cH = H - PAD.top - PAD.bottom;
+  const PAD = {top:30, right:30, bottom:62, left:52};
+  const cW = displayW - PAD.left - PAD.right;
+  const cH = displayH - PAD.top - PAD.bottom;
 
   // أقصى قيمة
   let maxVal = 0;
   filtered.forEach(function(item){
-    months.forEach(function(mo){
-      const v = monthlyData[item.name][mo]||0;
+    const itemKey = item.id !== undefined ? item.id : item.name;
+    buckets.forEach(function(b){
+      const v = weeklyData[itemKey][b.key]||0;
       if(v > maxVal) maxVal = v;
     });
   });
   if(maxVal === 0) maxVal = 1;
 
-  // شبكة خلفية
+  // شبكة أفقية + قيم المحور الرأسي (هنا فقط تظهر الكميات)
   ctx.strokeStyle = '#dde1e7';
-  ctx.lineWidth = 0.5;
+  ctx.lineWidth = 1;
   const gridLines = 5;
   for(var g=0; g<=gridLines; g++){
     const y = PAD.top + cH - (g/gridLines)*cH;
-    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(canvas.width-PAD.right, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(displayW-PAD.right, y); ctx.stroke();
     ctx.fillStyle = '#888';
     ctx.font = '10px Cairo';
     ctx.textAlign = 'right';
     ctx.fillText(Math.round((g/gridLines)*maxVal).toLocaleString(), PAD.left-5, y+4);
   }
-  // خطوط عمودية للشهور
-  months.forEach(function(mo, i){
-    const x = PAD.left + (i/(months.length-1||1))*cW;
+
+  // خطوط عمودية رفيعة تقسّم كل شهر لـ 4 أسابيع + رقم بسيط (1-4) تحت كل أسبوع
+  buckets.forEach(function(b, i){
+    const x = PAD.left + (i/(buckets.length-1||1))*cW;
     ctx.strokeStyle = '#eef0f3';
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top+cH); ctx.stroke();
-    // اسم الشهر
-    ctx.fillStyle = '#666';
-    ctx.font = '10px Cairo';
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px Cairo';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(b.week), x, PAD.top+cH+13);
+  });
+
+  // فاصل واسم لكل شهر تحت مجموعة أسابيعه الأربعة
+  months.forEach(function(mo, mi){
+    const startIdx = mi*4, endIdx = startIdx+3;
+    const xStart = PAD.left + (startIdx/(buckets.length-1||1))*cW;
+    const xEnd = PAD.left + (endIdx/(buckets.length-1||1))*cW;
+    const xMid = (xStart+xEnd)/2;
+    if(mi>0){
+      const xSep = PAD.left + ((startIdx-0.5)/(buckets.length-1||1))*cW;
+      ctx.strokeStyle = '#c5d0f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(xSep, PAD.top); ctx.lineTo(xSep, PAD.top+cH); ctx.stroke();
+    }
+    ctx.fillStyle = '#444';
+    ctx.font = 'bold 10px Cairo';
     ctx.textAlign = 'center';
     const d = new Date(mo+'-01');
     const label = d.toLocaleDateString('ar-EG',{month:'short',year:'2-digit'});
-    ctx.fillText(label, x, PAD.top+cH+16);
+    ctx.fillText(label, xMid, PAD.top+cH+30);
   });
 
-  // رسم خط كل صنف
+  // رسم خط كل صنف + تجميع نقاط للـ tooltip التفاعلي
+  const hitPoints = [];
   filtered.forEach(function(item, idx){
+    const itemKey = item.id !== undefined ? item.id : item.name;
     const color = resolvedChartColors[idx % resolvedChartColors.length];
-    const pts = months.map(function(mo, i){
-      const v = monthlyData[item.name][mo]||0;
+    const pts = buckets.map(function(b, i){
+      const v = weeklyData[itemKey][b.key]||0;
+      const d = new Date(b.month+'-01');
       return {
-        x: PAD.left + (i/(months.length-1||1))*cW,
+        x: PAD.left + (i/(buckets.length-1||1))*cW,
         y: PAD.top + cH - (v/maxVal)*cH,
-        v: v
+        v: v,
+        week: b.week,
+        bucketIndex: i,
+        monthLabel: d.toLocaleDateString('ar-EG',{month:'long',year:'numeric'}),
+        itemName: item.name,
+        color: color
       };
     });
 
@@ -4853,20 +4927,15 @@ function drawAnalyticsChart(itemList, colors, allMovs){
     pts.forEach(function(p,i){ i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); });
     ctx.stroke();
 
-    // نقاط
+    // نقاط (بدون كتابة الكمية فوقها — اضغط على النقطة لعرض قيمتها)
     pts.forEach(function(p){
       ctx.fillStyle = '#fff';
       ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle = color; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.stroke();
-      // قيمة فوق النقطة (فقط لو > 0)
-      if(p.v > 0){
-        ctx.fillStyle = color;
-        ctx.font = 'bold 9px Cairo';
-        ctx.textAlign = 'center';
-        ctx.fillText(p.v.toLocaleString(), p.x, p.y-9);
-      }
     });
+
+    hitPoints.push.apply(hitPoints, pts);
   });
 
   // legend
@@ -4881,9 +4950,47 @@ function drawAnalyticsChart(itemList, colors, allMovs){
     ctx.textAlign = 'left';
     ctx.fillText(item.name, legendX+22, legendY);
     legendX += ctx.measureText(item.name).width + 40;
-    if(legendX > canvas.width - 80){ legendX = PAD.left; }
+    if(legendX > displayW - 80){ legendX = PAD.left; }
   });
+
+  // --- تفاعل: اضغط في أي مكان بعمود الأسبوع يظهر بوب-أب فيه اسم الصنف والأسبوع والكمية ---
+  // الطريقة: تحديد "عمود" الأسبوع الأقرب لمكان الضغط أولاً (بالعرض)، بعدين اختيار أقرب خط داخل نفس العمود (بالارتفاع)
+  // ده بيخلي الضغط دقيق وثابت بدل ما يعتمد على قرب عشوائي من نقطة معينة
+  canvas.onclick = function(e){
+    if(!tooltip) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // لو الضغط خارج منطقة الرسم خالص، اقفل الـ tooltip
+    if(mx < PAD.left-16 || mx > displayW-PAD.right+16 || my < PAD.top-10 || my > PAD.top+cH+45){
+      tooltip.style.display = 'none';
+      return;
+    }
+
+    // المرحلة 1: أقرب عمود (أسبوع) بالعرض
+    const relX = mx - PAD.left;
+    let bIdx = Math.round((relX/cW) * (buckets.length-1));
+    bIdx = Math.max(0, Math.min(buckets.length-1, bIdx));
+
+    // المرحلة 2: أقرب خط (صنف) داخل نفس العمود بالارتفاع
+    const candidates = hitPoints.filter(function(p){ return p.bucketIndex === bIdx; });
+    if(!candidates.length){ tooltip.style.display = 'none'; return; }
+    let nearest = candidates[0], bestDy = Math.abs(candidates[0].y - my);
+    candidates.forEach(function(p){
+      const dy = Math.abs(p.y - my);
+      if(dy < bestDy){ bestDy = dy; nearest = p; }
+    });
+
+    tooltip.innerHTML = '<b>'+nearest.itemName+'</b><br>'+nearest.monthLabel+' — الأسبوع '+nearest.week+'<br>الكمية: '+nearest.v.toLocaleString();
+    let left = nearest.x + 12;
+    if(left + 160 > displayW) left = nearest.x - 12 - 160;
+    tooltip.style.left = Math.max(0,left) + 'px';
+    tooltip.style.top = Math.max(0, nearest.y - 46) + 'px';
+    tooltip.style.display = 'block';
+  };
 }
+
 
 // ═══ Analytics ═══
 function fillAnalyticsParties(){
@@ -4923,9 +5030,16 @@ function renderAnalytics(){
     return m.party===party;
   });
   if(period!=='all'){
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth()-parseInt(period));
-    movs = movs.filter(m=>new Date(m.date)>=cutoff);
+    // بناء الفلتر على أساس بداية الشهر الميلادي، مش على أساس عدّ أيام للخلف
+    // (العد اليومي كان بيقطع نص الشهر لو النهاردة نص الشهر، فيسقط حركات فعلية زي حركة يوم 11 لما نختار "آخر شهر" والنهاردة يوم 15)
+    // كده أي شهر بيدخل في الفلتر بيدخل كامل من أول يوم فيه، ومفيش أي حركة حقيقية بتتقص أو تضيع
+    const monthsBack = parseInt(period,10);
+    const cutoff = new Date(now.getFullYear(), now.getMonth()-(monthsBack-1), 1);
+    movs = movs.filter(function(m){
+      const p = parseMovDate(m.date);
+      if(!p) return false;
+      return new Date(p.monthKey+'-01') >= cutoff;
+    });
   }
 
   if(!movs.length){
@@ -4936,8 +5050,8 @@ function renderAnalytics(){
   // إحصائيات لكل صنف
   const itemMap = {};
   movs.forEach(function(m){
-    if(!itemMap[m.itemId]) itemMap[m.itemId]={name:m.itemName,total:0,count:0,movs:[]};
-    itemMap[m.itemId].total += m.qty;
+    if(!itemMap[m.itemId]) itemMap[m.itemId]={id:m.itemId,name:m.itemName,total:0,count:0,movs:[]};
+    itemMap[m.itemId].total += (Number(m.qty)||0);
     itemMap[m.itemId].count++;
     itemMap[m.itemId].movs.push(m);
   });
@@ -5016,12 +5130,13 @@ function renderAnalytics(){
     <!-- الرسم البياني الخطي -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header">
-        <div class="card-title">📈 رسم بياني شهري — المقارنة</div>
+        <div class="card-title">📈 رسم بياني أسبوعي (مقسّم لكل شهر) — المقارنة</div>
       </div>
       <div class="card-body">
         <div id="chartItemsFilter" style="display:none"></div>
-        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-          <canvas id="analyticsChart" style="min-width:400px;height:300px"></canvas>
+        <div id="chartScrollWrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative">
+          <canvas id="analyticsChart" style="min-width:400px;height:300px;touch-action:pan-x"></canvas>
+          <div id="chartTooltip" style="display:none;position:absolute;background:#1e2a4a;color:#fff;font-size:11px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:10;line-height:1.6"></div>
         </div>
       </div>
     </div>
