@@ -859,6 +859,7 @@ body.guest-mode #orderTbody select {
     <div class="nav-item" onclick="gotoPage('inventory')"><span class="icon">🔍</span> الجرد<span class="nav-badge" id="deficitBadge" style="display:none">!</span></div>
     <div class="nav-item" onclick="gotoPage('reports')"><span class="icon">📊</span> التقارير</div>
     <div class="nav-item" onclick="gotoPage('analytics')"><span class="icon">🔥</span> تحليل الجهات</div>
+    <div class="nav-item" onclick="gotoPage('itemAnalytics')"><span class="icon">💊</span> تحليل الأصناف</div>
     <div class="nav-item" onclick="gotoPage('orders')"><span class="icon">📦</span> الطلبيات</div>
     <div class="nav-section">الإدارة</div>
     <div class="nav-item" onclick="gotoPage('staff')"><span class="icon">👥</span> الموظفين</div>
@@ -1553,6 +1554,49 @@ function syncFromSupabase() {
 
       <!-- النتائج -->
       <div id="analyticsResult"></div>
+    </div>
+
+    <!-- ══════════ تحليل الأصناف ══════════ -->
+    <div id="page-itemAnalytics" class="page">
+      <!-- اختيار الصنف -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">💊 تحليل صرف الأصناف</div>
+        </div>
+        <div class="card-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">اختر الصنف</label>
+              <select id="ianItem" onchange="renderItemAnalytics()"
+                style="padding:8px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif;min-width:180px">
+                <option value="">— اختر صنف —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">الفترة</label>
+              <select id="ianPeriod" onchange="renderItemAnalytics()"
+                style="padding:8px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif">
+                <option value="all">كل الوقت</option>
+                <option value="1">الشهر الحالي</option>
+                <option value="3">آخر 3 شهور</option>
+                <option value="6">آخر 6 شهور</option>
+                <option value="12">آخر سنة</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">النوع</label>
+              <select id="ianType" onchange="renderItemAnalytics()"
+                style="padding:8px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:Cairo,sans-serif">
+                <option value="صرف">صادر</option>
+                <option value="وارد">وارد</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- النتائج -->
+      <div id="itemAnalyticsResult"></div>
     </div>
 
   </div><!-- /content -->
@@ -3735,8 +3779,9 @@ function fmt(d){if(!d)return'—';return new Date(d).toLocaleDateString('ar-EG',
 function gotoPage(p){
   if(p==='add-movement') setTimeout(fillPartyDropdown,100);
   if(p==='analytics') setTimeout(function(){fillAnalyticsParties();renderAnalytics();},100);
+  if(p==='itemAnalytics') setTimeout(function(){fillItemAnalyticsItems();renderItemAnalytics();},100);
   const titles={dashboard:['لوحة التحكم','نظرة عامة على المخزن'],items:['الأصناف','كل أصناف مخزن المحاليل'],movements:['سجل الحركات','كل عمليات الصرف والاستلام'],'add-movement':['حركة جديدة','تسجيل صرف أو استلام'],inventory:['الجرد الذكي','تسجيل وتحليل جرد المخزن'],reports:['التقارير','إحصائيات ومعدلات الصرف'],orders:['الطلبيات الشهرية','إدارة طلبيات المحاليل والاستعجال'],
-    analytics:['تحليل الجهات','معدلات الصرف والاستهلاك لكل جهة'],staff:['الموظفون','إدارة فريق المخزن'],settings:['الإعدادات','إعدادات النظام والمزامنة']};
+    analytics:['تحليل الجهات','معدلات الصرف والاستهلاك لكل جهة'],itemAnalytics:['تحليل الأصناف','معدلات الصرف والجهات المستفيدة لكل صنف'],staff:['الموظفون','إدارة فريق المخزن'],settings:['الإعدادات','إعدادات النظام والمزامنة']};
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const pg=document.getElementById('page-'+p);
@@ -4731,10 +4776,11 @@ const resolvedChartColors = ['#00b8a9','#f0a500','#e74c3c','#58a6ff','#3fb950','
 let _chartItemList = null;
 let _chartMovs = null;
 let _chartColors = null;
+let _chartCanvasId = null;
+let _chartTooltipId = null;
 
-function toggleChartItem(name, idx){
+function toggleChartItem(btn, name, idx){
   if(!selectedChartItems || !_chartItemList) return;
-  const btn = document.getElementById('chartBtn_'+idx);
   const inChart = selectedChartItems.includes(name);
   if(inChart){
     selectedChartItems = selectedChartItems.filter(function(n){ return n !== name; });
@@ -4743,7 +4789,7 @@ function toggleChartItem(name, idx){
     selectedChartItems.push(name);
     if(btn) btn.textContent = '✅';
   }
-  drawAnalyticsChart(_chartItemList, _chartColors, _chartMovs);
+  drawAnalyticsChart(_chartItemList, _chartColors, _chartMovs, _chartCanvasId, _chartTooltipId);
 }
 
 // استخراج الشهر واليوم من تاريخ الحركة بطريقة مقاومة لاختلاف الصيغة
@@ -4771,17 +4817,20 @@ function weekOfDay(day){
   return 4;
 }
 
-function drawAnalyticsChart(itemList, colors, allMovs){
+function drawAnalyticsChart(itemList, colors, allMovs, canvasId, tooltipId){
+  canvasId = canvasId || 'analyticsChart';
+  tooltipId = tooltipId || 'chartTooltip';
   // حفظ البيانات عالمياً لاستخدامها في toggleChartItem
   _chartItemList = itemList;
   _chartMovs = allMovs;
   _chartColors = colors;
+  _chartCanvasId = canvasId;
+  _chartTooltipId = tooltipId;
 
-  const canvas = document.getElementById('analyticsChart');
+  const canvas = document.getElementById(canvasId);
   if(!canvas) return;
 
   // تهيئة selectedChartItems لو أول مرة
-  const filterDiv = document.getElementById('chartItemsFilter');
   if(selectedChartItems === null){
     selectedChartItems = itemList.map(function(i){ return i.name; });
   }
@@ -4790,7 +4839,7 @@ function drawAnalyticsChart(itemList, colors, allMovs){
     ? itemList.filter(function(i){ return selectedChartItems.includes(i.name); })
     : itemList;
 
-  const tooltip = document.getElementById('chartTooltip');
+  const tooltip = document.getElementById(tooltipId);
   if(tooltip) tooltip.style.display = 'none';
 
   if(!filtered.length){ canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); return; }
@@ -5128,7 +5177,7 @@ function renderAnalytics(){
                 <td style="text-align:center;color:var(--green)">${monthly.toLocaleString()}</td>
                 <td style="text-align:center">
                   <button data-itemname="${item.name}" data-itemidx="${idx}"
-                    onclick="toggleChartItem(this.dataset.itemname, parseInt(this.dataset.itemidx))"
+                    onclick="toggleChartItem(this, this.dataset.itemname, parseInt(this.dataset.itemidx))"
                     id="chartBtn_${idx}"
                     style="font-size:20px;background:none;border:none;cursor:pointer;line-height:1;padding:2px 8px"
                     title="إضافة/إزالة من الرسم">✅</button>
@@ -5182,6 +5231,190 @@ function renderAnalytics(){
 
   // رسم الـ Line chart بعد إضافة canvas للـ DOM
   setTimeout(function(){ drawAnalyticsChart(itemList, colors, movs); }, 150);
+}
+
+// ═══ تحليل الأصناف — نفس فكرة تحليل الجهات، بس بالعكس: تختار صنف وتشوف اتصرف امتى وكام ولمين ═══
+function fillItemAnalyticsItems(){
+  const sel = document.getElementById('ianItem');
+  if(!sel) return;
+  const cur = sel.value;
+  const sorted = [...items].sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ar'); });
+  sel.innerHTML = '<option value="">— اختر صنف —</option>';
+  sorted.forEach(function(it){
+    const opt = document.createElement('option');
+    opt.value = it.id; opt.textContent = it.name;
+    sel.appendChild(opt);
+  });
+  if(cur && sorted.some(function(it){ return it.id===cur; })) sel.value = cur;
+}
+
+function renderItemAnalytics(){
+  fillItemAnalyticsItems();
+  const itemId = document.getElementById('ianItem').value;
+  const period = document.getElementById('ianPeriod').value;
+  const type = document.getElementById('ianType').value;
+  const el = document.getElementById('itemAnalyticsResult');
+  if(!el) return;
+  if(!itemId){ el.innerHTML='<div class="empty" style="padding:40px">اختر صنف لعرض التحليل</div>'; return; }
+  const selectedItem = items.find(function(i){ return i.id===itemId; });
+  const itemLabel = selectedItem ? selectedItem.name : '';
+
+  // إعادة تهيئة الفلتر والرسم عند تغيير المعايير
+  selectedChartItems = null;
+
+  const now = new Date();
+  let movs = movements.filter(function(m){
+    if(m.type!==type) return false;
+    return m.itemId===itemId;
+  });
+
+  if(period!=='all'){
+    // نفس منطق الشهور الكاملة المستخدم في تحليل الجهات — يمنع فقدان حركات حقيقية بسبب قص نص الشهر
+    const monthsBack = parseInt(period,10);
+    const cutoff = new Date(now.getFullYear(), now.getMonth()-(monthsBack-1), 1);
+    movs = movs.filter(function(m){
+      const p = parseMovDate(m.date);
+      if(!p) return false;
+      return new Date(p.monthKey+'-01') >= cutoff;
+    });
+  }
+
+  if(!movs.length){
+    el.innerHTML='<div class="empty" style="padding:30px">لا توجد حركات لهذا الصنف في الفترة المحددة</div>';
+    return;
+  }
+
+  // تجميع الحركات حسب الجهة (بدل الصنف) — كل جهة بتاخد "خط" في الرسم البياني بنفس طريقة تحليل الجهات بالظبط
+  const partyMap = {};
+  const otherPatternsOut = ['سلفة','تصليح خطأ','تصليح خطا','أخرى'];
+  const otherPatternsIn  = ['عمليات التاني','أخرى'];
+  movs.forEach(function(m){
+    const patterns = type==='صرف' ? otherPatternsOut : otherPatternsIn;
+    const raw = m.party || '(بدون جهة)';
+    const key = patterns.some(function(p){ return raw.includes(p); }) ? 'أخرى' : raw;
+    if(!partyMap[key]) partyMap[key]={id:key,name:key,total:0,count:0,movs:[]};
+    partyMap[key].total += (Number(m.qty)||0);
+    partyMap[key].count++;
+    partyMap[key].movs.push(m);
+  });
+
+  const partyList = Object.values(partyMap).sort((a,b)=>b.total-a.total);
+  const maxTotal = partyList[0]?partyList[0].total:1;
+
+  const monthsCount = period==='all'
+    ? Math.max(1, Math.ceil((now - new Date(movs.reduce((min,m)=>m.date<min?m.date:min, movs[0].date)))/2592000000))
+    : parseInt(period);
+
+  const grandTotal = partyList.reduce((s,p)=>s+p.total,0);
+
+  // خط/صف إضافي "الكل" في أول الجدول والرسم — بيجمع كل الجهات مع بعض في خط واحد
+  // عشان يوريك معدل صرف الصنف بشكل عام كل أسبوع/شهر، بغض النظر عن مين أخد منه
+  // (بيُستخدم في الجدول والرسم البياني بس، مش في إحصائيات الملخص فوق ولا الرسم الأفقي، عشان منضاعفش الإجمالي)
+  const chartLines = [{id:'__ALL__', name:'الكل', total:grandTotal, count:movs.length, movs:movs}].concat(partyList);
+
+  const colors = ['var(--teal)','var(--blue)','var(--amber)','var(--green)','var(--purple)','#e74c3c','#e67e22','#1abc9c','#9b59b6','#3498db'];
+
+  el.innerHTML = `
+    <!-- إحصائيات سريعة -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="analytics-stat">
+        <div class="analytics-stat-val">${partyList.length}</div>
+        <div class="analytics-stat-lbl">جهة مختلفة</div>
+      </div>
+      <div class="analytics-stat">
+        <div class="analytics-stat-val">${grandTotal.toLocaleString()}</div>
+        <div class="analytics-stat-lbl">إجمالي الكمية</div>
+      </div>
+      <div class="analytics-stat">
+        <div class="analytics-stat-val">${movs.length}</div>
+        <div class="analytics-stat-lbl">عدد الحركات</div>
+      </div>
+    </div>
+
+    <!-- جدول التفاصيل مع عمود المقارنة -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">📋 تفاصيل الصرف — ${itemLabel}</div>
+        <div style="font-size:11px;color:var(--text3)">اضغط ✅ لإضافة الجهة للرسم أو ❌ لإزالتها</div>
+      </div>
+      <div class="card-body no-pad">
+        <table>
+          <thead><tr>
+            <th>الجهة</th>
+            <th>عدد المرات</th>
+            <th>متوسط المرة</th>
+            <th>الإجمالي</th>
+            <th>المعدل/شهر</th>
+            <th style="text-align:center">مقارنة</th>
+          </tr></thead>
+          <tbody id="itemAnalyticsTableBody">
+            ${chartLines.map(function(p, idx){
+              const avg = Math.round(p.total/p.count);
+              const monthly = Math.round(p.total/monthsCount);
+              const color = resolvedChartColors[idx % resolvedChartColors.length];
+              const isAll = p.id === '__ALL__';
+              return `<tr${isAll ? ' style="background:rgba(255,255,255,.03)"' : ''}>
+                <td style="font-weight:${isAll?800:600};border-right:3px solid ${color}">${isAll?'⭐ ':''}${p.name}</td>
+                <td style="text-align:center">${p.count}</td>
+                <td style="text-align:center;color:var(--amber)">${avg.toLocaleString()}</td>
+                <td style="text-align:center;font-weight:700;color:var(--teal)">${p.total.toLocaleString()}</td>
+                <td style="text-align:center;color:var(--green)">${monthly.toLocaleString()}</td>
+                <td style="text-align:center">
+                  <button data-itemname="${p.name}" data-itemidx="${idx}"
+                    onclick="toggleChartItem(this, this.dataset.itemname, parseInt(this.dataset.itemidx))"
+                    id="chartBtn_${idx}"
+                    style="font-size:20px;background:none;border:none;cursor:pointer;line-height:1;padding:2px 8px"
+                    title="إضافة/إزالة من الرسم">✅</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- الرسم البياني الخطي -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">📈 رسم بياني أسبوعي (مقسّم لكل شهر) — المقارنة</div>
+      </div>
+      <div class="card-body">
+        <div id="chartItemsFilterI" style="display:none"></div>
+        <div id="chartScrollWrapI" style="overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative">
+          <canvas id="analyticsChartI" style="min-width:400px;height:300px;touch-action:pan-x"></canvas>
+          <div id="chartTooltipI" style="display:none;position:absolute;background:#1e2a4a;color:#fff;font-size:11px;padding:6px 10px;border-radius:8px;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:10;line-height:1.6"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- رسم بياني أفقي -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📊 رسم بياني أفقي — الكمية الإجمالية لكل جهة</div>
+      </div>
+      <div class="card-body">
+        ${partyList.map(function(p,i){
+          const pct = Math.round((p.total/maxTotal)*100);
+          const color = colors[i%colors.length];
+          const monthly = Math.round(p.total/monthsCount);
+          return `<div class="analytics-bar-wrap">
+            <div class="analytics-bar-label">
+              <span>${p.name}</span>
+              <span style="color:var(--text3);font-size:11px">معدل شهري: ${monthly.toLocaleString()}</span>
+            </div>
+            <div class="analytics-bar-track">
+              <div class="analytics-bar-fill" style="width:${pct}%;background:${color}">
+                <span class="analytics-bar-val">${p.total.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  // رسم الـ Line chart بعد إضافة canvas للـ DOM
+  setTimeout(function(){ drawAnalyticsChart(chartLines, colors, movs, 'analyticsChartI', 'chartTooltipI'); }, 150);
 }
 
 // ── AUTH LOGIC ──
