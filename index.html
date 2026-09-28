@@ -726,7 +726,28 @@ body.guest-mode button[onclick*="saveSupplyNo"],
 body.guest-mode button[onclick*="removeLog"],
 body.guest-mode button[onclick*="printItemUrgent"],
 body.guest-mode button[onclick*="printAllUrgent"],
-body.guest-mode button[onclick*="confirmExportUrgent"] {
+body.guest-mode button[onclick*="confirmExportUrgent"],
+body.guest-mode button[onclick*="openAddTalafModal"],
+body.guest-mode button[onclick*="saveTalafRecord"],
+body.guest-mode button[onclick*="openReplaceTalaf"],
+body.guest-mode button[onclick*="confirmReplaceTalaf"],
+body.guest-mode button[onclick*="openEditTalaf"],
+body.guest-mode button[onclick*="saveEditTalaf"],
+body.guest-mode button[onclick*="undoTalafHistory"],
+body.guest-mode button[onclick*="deleteTalafHistory"],
+body.guest-mode button[onclick*="addTalafType"],
+body.guest-mode button[onclick*="addTalafSource"],
+body.guest-mode button[onclick*="syncItemLedger"] {
+  display: none !important;
+}
+body.guest-mode #talafTypesList span[onclick*="removeTalafType"] {
+  display: none !important;
+}
+body.guest-mode #talafTypesList span[onclick*="removeTalafSource"],
+body.guest-mode #talafSourcesList span[onclick*="removeTalafSource"],
+body.guest-mode #talafAddSourceRow,
+body.guest-mode #eiSyncActionRow,
+body.guest-mode #talafAddTypeRow {
   display: none !important;
 }
 body.guest-mode .nav-item[onclick*="settings"],
@@ -857,6 +878,7 @@ body.guest-mode #orderTbody select {
     <div class="nav-item" onclick="gotoPage('add-movement')"><span class="icon">➕</span> حركة جديدة</div>
     <div class="nav-section">التقييم</div>
     <div class="nav-item" onclick="gotoPage('inventory')"><span class="icon">🔍</span> الجرد<span class="nav-badge" id="deficitBadge" style="display:none">!</span></div>
+    <div class="nav-item" onclick="gotoPage('talaf')"><span class="icon">♻️</span> توالف<span class="nav-badge" id="talafBadge" style="display:none">0</span></div>
     <div class="nav-item" onclick="gotoPage('reports')"><span class="icon">📊</span> التقارير</div>
     <div class="nav-item" onclick="gotoPage('analytics')"><span class="icon">🔥</span> تحليل الجهات</div>
     <div class="nav-item" onclick="gotoPage('itemAnalytics')"><span class="icon">💊</span> تحليل الأصناف</div>
@@ -939,6 +961,15 @@ body.guest-mode #orderTbody select {
           </div>
           <div class="card-body no-pad" id="dashExpiry"></div>
         </div>
+      </div>
+
+      <!-- ══ توالف بانتظار التبديل ══ -->
+      <div class="card" id="dashTalafCard" style="margin-bottom:14px;border-color:rgba(240,160,60,0.4)">
+        <div class="card-header" style="padding:10px 14px">
+          <div class="card-title" style="font-size:13px">♻️ توالف بانتظار التبديل <span id="dashTalafSummary" style="font-weight:400;color:var(--text2);font-size:11px"></span></div>
+          <button class="btn btn-ghost btn-sm" onclick="gotoPage('talaf')">عرض الكل</button>
+        </div>
+        <div class="card-body no-pad" id="dashTalaf"></div>
       </div>
 
       <!-- ══ آخر 5 حركات ══ -->
@@ -1216,6 +1247,101 @@ body.guest-mode #orderTbody select {
         </div>
         <div class="card-body no-pad">
           <div id="inventoryHistory"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ TALAF (توالف) ══════════ -->
+    <div id="page-talaf" class="page">
+
+      <div class="stats-row" style="margin-bottom:16px">
+        <div class="stat-card amber">
+          <div class="stat-icon">♻️</div>
+          <div class="stat-val" id="talafStatCount">0</div>
+          <div class="stat-lbl">سجل تالف قائم</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon">📦</div>
+          <div class="stat-val" id="talafStatQty">0</div>
+          <div class="stat-lbl">إجمالي الكمية التالفة</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon">💊</div>
+          <div class="stat-val" id="talafStatTypes">0</div>
+          <div class="stat-lbl">صنف مختلف مسجل حالياً</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon">⚠️</div>
+          <div class="stat-val" id="talafStatOld">0</div>
+          <div class="stat-lbl">متأخرة أكثر من 30 يوم</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">♻️ سجل التوالف — محاليل بانتظار التبديل من الشركة</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="exportTalafXLS()">📥 Excel</button>
+            <button class="btn btn-ghost btn-sm" onclick="printTalaf()">🖨️ PDF / طباعة</button>
+            <button class="btn btn-teal btn-sm" onclick="openAddTalafModal()">+ تسجيل تالف</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="search-row">
+            <input class="search-input" id="talafSearch" placeholder="🔍 ابحث باسم الصنف أو المكان..." oninput="renderTalaf()">
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th>الصنف</th><th>المكان</th><th>الكمية</th><th>تاريخ الصلاحية</th><th>ملاحظات</th><th>إجراءات</th>
+              </tr></thead>
+              <tbody id="talafTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📜 هيستوري التبديل</div>
+        </div>
+        <div class="card-body">
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th>الصنف</th><th>المكان</th><th>الكمية</th><th>تاريخ الصلاحية</th><th>تاريخ التبديل</th><th>ملاحظات</th><th>إجراءات</th>
+              </tr></thead>
+              <tbody id="talafHistoryTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🏷️ الأصناف المتاح بها توالف</div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">هذه القائمة تحدد الأصناف الظاهرة عند تسجيل تالف جديد — أضف أو احذف منها بحرية</div>
+          <div id="talafTypesList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+          <div id="talafAddTypeRow" style="display:flex;gap:8px;max-width:420px">
+            <input class="search-input" id="talafNewType" placeholder="اسم صنف جديد..." style="flex:1" onkeydown="if(event.key==='Enter')addTalafType()">
+            <button class="btn btn-teal btn-sm" onclick="addTalafType()">➕ إضافة</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📍 أماكن مصدر التوالف</div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">الأماكن اللي بترجّع توالف للمخزن — بتظهر عند تسجيل تالف جديد</div>
+          <div id="talafSourcesList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+          <div id="talafAddSourceRow" style="display:flex;gap:8px;max-width:420px">
+            <input class="search-input" id="talafNewSource" placeholder="اسم مكان جديد..." style="flex:1" onkeydown="if(event.key==='Enter')addTalafSource()">
+            <button class="btn btn-teal btn-sm" onclick="addTalafSource()">➕ إضافة</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1627,6 +1753,73 @@ function syncFromSupabase() {
   </div>
 </div>
 
+<!-- Add Talaf Record -->
+<div class="overlay" id="addTalafModal">
+  <div class="modal">
+    <div class="modal-head"><h3>♻️ تسجيل تالف جديد</h3><button class="close-btn" onclick="closeModal('addTalafModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg">
+          <label>الصنف *</label>
+          <select id="tfName"><option value="">— اختر الصنف —</option></select>
+        </div>
+        <div class="fg">
+          <label>المكان (مصدر التالف) *</label>
+          <select id="tfSource"><option value="">— اختر المكان —</option></select>
+        </div>
+        <div class="fg"><label>الكمية *</label><input id="tfQty" type="number" min="1" placeholder="0"></div>
+        <div class="fg"><label>تاريخ صلاحية الصنف *</label><input id="tfExpiry" type="date" style="direction:ltr"></div>
+        <div class="fg span-all"><label>ملاحظات</label><input id="tfNotes" placeholder="اختياري"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-teal" onclick="saveTalafRecord()">💾 حفظ</button>
+      <button class="btn btn-ghost" onclick="closeModal('addTalafModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Replace Talaf -->
+<div class="overlay" id="replaceTalafModal">
+  <div class="modal">
+    <div class="modal-head"><h3>✅ تسجيل تبديل من الشركة</h3><button class="close-btn" onclick="closeModal('replaceTalafModal')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="rpId">
+      <div id="rpInfo" style="font-size:13px;margin-bottom:12px;color:var(--text2)"></div>
+      <div class="form-grid">
+        <div class="fg"><label>الكمية التي تم تبديلها *</label><input id="rpQty" type="number" min="1" placeholder="0"></div>
+        <div class="fg"><label>تاريخ التبديل *</label><input id="rpDate" type="date" style="direction:ltr"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">لو أقل من الكمية الكلية، الباقي يفضل في قائمة التوالف.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-teal" onclick="confirmReplaceTalaf()">💾 تأكيد التبديل</button>
+      <button class="btn btn-ghost" onclick="closeModal('replaceTalafModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Talaf -->
+<div class="overlay" id="editTalafModal">
+  <div class="modal">
+    <div class="modal-head"><h3>✏️ تعديل سجل التالف</h3><button class="close-btn" onclick="closeModal('editTalafModal')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="etId">
+      <div class="form-grid">
+        <div class="fg"><label>الصنف *</label><select id="etName"></select></div>
+        <div class="fg"><label>المكان (مصدر التالف) *</label><select id="etSource"></select></div>
+        <div class="fg"><label>الكمية *</label><input id="etQty" type="number" min="1"></div>
+        <div class="fg"><label>تاريخ صلاحية الصنف *</label><input id="etExpiry" type="date" style="direction:ltr"></div>
+        <div class="fg span-all"><label>ملاحظات</label><input id="etNotes" placeholder="اختياري"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-teal" onclick="saveEditTalaf()">💾 حفظ التعديل</button>
+      <button class="btn btn-ghost" onclick="closeModal('editTalafModal')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Item -->
 <div class="overlay" id="editItemModal">
   <div class="modal">
@@ -1647,6 +1840,16 @@ function syncFromSupabase() {
           <input id="eiTradeName" placeholder="e.g. Sodium Chloride 0.9% 500ml - CompanyName">
           <div style="font-size:11px;color:var(--text2);margin-top:4px">يُستخدم فقط في طباعة الطلبيات وطلبات الاستعجال، لا يؤثر على الموقع</div>
         </div>
+      </div>
+
+      <div style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(120,148,236,0.05)">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">🔄 المزامنة مع الدفتر</div>
+        <div id="eiSyncLast" style="font-size:12px;margin-bottom:10px"></div>
+        <div id="eiSyncActionRow" style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="search-input" id="eiSyncNote" placeholder="ملاحظة (اختياري) — مثال: صفحة 12 بالدفتر" style="flex:1;min-width:160px">
+          <button class="btn btn-teal btn-sm" onclick="syncItemLedger()">🔄 تمت المزامنة الآن</button>
+        </div>
+        <div id="eiSyncHistory" style="margin-top:10px"></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1972,6 +2175,522 @@ async function sbGetSetting(key){
 }
 let currentItemId=null, activeJardSession=null;
 
+// ═══════════════════ مزامنة الأصناف مع الدفتر ═══════════════════
+let itemSyncs={}; // { itemId: [ {id,at,stock,note,lastMovId,lastMovSerial,lastMovDate,lastMovType,lastMovQty,lastMovDocNo,movCount}, ... الأحدث أولاً ] }
+
+async function sbSaveItemSyncs(){
+  localStorage.setItem('rx_item_syncs',JSON.stringify(itemSyncs));
+  try{ await sbUpsert('app_settings',[{key:'item_syncs',value:JSON.stringify(itemSyncs)}]); }
+  catch(e){ console.error('❌ sbSaveItemSyncs error:',e); }
+}
+
+async function sbLoadItemSyncs(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.item_syncs',{headers:sbHeaders()});
+    if(!r.ok) throw new Error('fetch failed');
+    const data=await r.json();
+    if(data && data.length && data[0] && data[0].value){
+      const parsed=JSON.parse(data[0].value);
+      itemSyncs=(parsed&&typeof parsed==='object')?parsed:{};
+      localStorage.setItem('rx_item_syncs',JSON.stringify(itemSyncs));
+      return;
+    }
+    throw new Error('empty');
+  }catch(e){
+    try{ const c=JSON.parse(localStorage.getItem('rx_item_syncs')||'null'); if(c&&typeof c==='object') itemSyncs=c; }catch(e2){}
+  }
+}
+
+function movTime(m){ return new Date(m.createdAt||((m.date||'1970-01-01')+'T00:00:00')).getTime(); }
+function syncRefTime(sy){
+  // وقت آخر حركة وقت المزامنة؛ لو مفيش حركات نستخدم وقت المزامنة نفسه
+  if(sy.lastMovTime) return sy.lastMovTime;
+  return sy.lastMovId?0:new Date(sy.at).getTime();
+}
+function lastMovOf(itemId){
+  const list=movements.filter(m=>m.itemId===itemId);
+  if(!list.length) return null;
+  return list.reduce((a,b)=>{
+    const ta=movTime(a), tb=movTime(b);
+    if(tb!==ta) return tb>ta?b:a;
+    return (b.serial||0)>(a.serial||0)?b:a;
+  });
+}
+function fmtSyncAt(iso){
+  const d=new Date(iso);
+  return d.toLocaleDateString('ar-EG',{year:'numeric',month:'short',day:'numeric'})+' — '+d.toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
+}
+function movesSinceSync(itemId,sy){
+  const ref=syncRefTime(sy);
+  return movements.filter(m=>m.itemId===itemId&&movTime(m)>ref).length;
+}
+
+async function syncItemLedger(){
+  if(document.body.classList.contains('guest-mode')) return;
+  const id=document.getElementById('eiId').value;
+  const item=items.find(i=>i.id===id); if(!item) return;
+  const last=lastMovOf(id);
+  const entry={
+    id:'sy_'+Date.now(),
+    at:new Date().toISOString(),
+    stock:item.stock,
+    note:document.getElementById('eiSyncNote').value.trim(),
+    movCount:movements.filter(m=>m.itemId===id).length,
+    lastMovId:last?last.id:null,
+    lastMovSerial:last?last.serial:null,
+    lastMovDate:last?last.date:null,
+    lastMovType:last?last.type:null,
+    lastMovQty:last?last.qty:null,
+    lastMovDocNo:last?(last.docNo||''):null,
+    lastMovTime:last?movTime(last):0
+  };
+  if(!itemSyncs[id]) itemSyncs[id]=[];
+  itemSyncs[id].unshift(entry);
+  itemSyncs[id]=itemSyncs[id].slice(0,30);
+  await sbSaveItemSyncs();
+  document.getElementById('eiSyncNote').value='';
+  renderItemSync(id);
+  if(typeof renderItemsTable==='function') renderItemsTable();
+}
+
+async function deleteItemSync(itemId,syId){
+  if(document.body.classList.contains('guest-mode')) return;
+  if(!confirm('حذف سجل المزامنة ده؟')) return;
+  itemSyncs[itemId]=(itemSyncs[itemId]||[]).filter(x=>x.id!==syId);
+  await sbSaveItemSyncs();
+  renderItemSync(itemId);
+  if(typeof renderItemsTable==='function') renderItemsTable();
+}
+
+function syncLastMovText(sy){
+  if(!sy.lastMovId) return 'لا توجد حركات على الصنف وقت المزامنة';
+  return 'آخر حركة: #'+sy.lastMovSerial+' — '+sy.lastMovType+' '+(Number(sy.lastMovQty)||0).toLocaleString()+' — بتاريخ '+(sy.lastMovDate||'—')+(sy.lastMovDocNo?' — إذن/فاتورة '+tfEsc(sy.lastMovDocNo):'');
+}
+
+function renderItemSync(id){
+  const box=document.getElementById('eiSyncLast'); const hist=document.getElementById('eiSyncHistory');
+  if(!box||!hist) return;
+  const list=itemSyncs[id]||[];
+  if(!list.length){
+    box.innerHTML='<span style="color:var(--text3)">لم تتم أي مزامنة لهذا الصنف بعد</span>';
+    hist.innerHTML='';
+    return;
+  }
+  const sy=list[0];
+  const since=movesSinceSync(id,sy);
+  box.innerHTML=`<div>آخر مزامنة: <strong>${fmtSyncAt(sy.at)}</strong></div>
+    <div style="color:var(--text2);margin-top:3px">الرصيد وقتها: <strong style="color:var(--teal)">${(Number(sy.stock)||0).toLocaleString()}</strong></div>
+    <div style="color:var(--text2);margin-top:3px">${syncLastMovText(sy)}</div>
+    ${sy.note?`<div style="color:var(--text2);margin-top:3px">ملاحظة: ${tfEsc(sy.note)}</div>`:''}
+    <div style="margin-top:4px;color:${since?'var(--amber)':'var(--green)'};font-weight:700">${since?since+' حركة جديدة بعد آخر مزامنة':'لا توجد حركات جديدة منذ آخر مزامنة'}</div>`;
+  hist.innerHTML=list.length>1?`<details><summary style="cursor:pointer;font-size:12px;color:var(--text2)">سجل المزامنات السابقة (${list.length-1})</summary>
+    <div style="margin-top:6px">${list.slice(1).map(x=>`<div style="padding:6px 0;border-top:1px solid var(--border);font-size:11px;color:var(--text2);display:flex;justify-content:space-between;gap:8px">
+      <span><strong style="color:var(--text)">${fmtSyncAt(x.at)}</strong> — رصيد ${(Number(x.stock)||0).toLocaleString()}<br>${syncLastMovText(x)}${x.note?'<br>ملاحظة: '+tfEsc(x.note):''}</span>
+      <button class="btn btn-icon btn-sm btn-red" style="align-self:center" onclick="deleteItemSync('${id}','${x.id}')" title="حذف">🗑️</button></div>`).join('')}</div></details>`:'';
+}
+
+function itemSyncBadge(itemId){
+  const sy=(itemSyncs[itemId]||[])[0];
+  if(!sy) return '<div style="font-size:10px;color:var(--text3)">🔄 لم تتم مزامنة</div>';
+  const since=movesSinceSync(itemId,sy);
+  const d=new Date(sy.at).toLocaleDateString('ar-EG',{day:'numeric',month:'short'});
+  return `<div style="font-size:10px;color:${since?'var(--amber)':'var(--text3)'}">🔄 ${d}${since?' • '+since+' حركة جديدة':''}</div>`;
+}
+
+// ═══════════════════ TALAF (توالف) ═══════════════════
+let talafTypes=['امينوليبان','اميبارين','كيدمن'];
+let talafRecords=[];
+let talafHistory=[];
+let talafSources=['صيدلية العمليات','صيدلية الرابع','صيدلية الخامس'];
+
+async function sbSaveTalaf(){
+  localStorage.setItem('rx_talaf',JSON.stringify({types:talafTypes,records:talafRecords,history:talafHistory,sources:talafSources}));
+  try{
+    await sbUpsert('app_settings',[{key:'talaf_data',value:JSON.stringify({types:talafTypes,records:talafRecords,history:talafHistory,sources:talafSources})}]);
+  }catch(e){
+    console.error('❌ sbSaveTalaf error:',e);
+  }
+}
+
+async function sbLoadTalaf(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.talaf_data',{headers:sbHeaders()});
+    if(!r.ok) throw new Error('fetch failed');
+    const data=await r.json();
+    if(data && data.length && data[0] && data[0].value){
+      const parsed=JSON.parse(data[0].value);
+      talafTypes=(parsed.types&&parsed.types.length)?parsed.types:talafTypes;
+      talafRecords=Array.isArray(parsed.records)?parsed.records:[];
+      talafHistory=Array.isArray(parsed.history)?parsed.history:[];
+      talafSources=(parsed.sources&&parsed.sources.length)?parsed.sources:talafSources;
+      localStorage.setItem('rx_talaf',JSON.stringify({types:talafTypes,records:talafRecords,history:talafHistory,sources:talafSources}));
+      return;
+    }
+    throw new Error('empty');
+  }catch(e){
+    try{
+      const cached=JSON.parse(localStorage.getItem('rx_talaf')||'null');
+      if(cached){
+        talafTypes=(cached.types&&cached.types.length)?cached.types:talafTypes;
+        talafRecords=Array.isArray(cached.records)?cached.records:[];
+        talafHistory=Array.isArray(cached.history)?cached.history:[];
+        talafSources=(cached.sources&&cached.sources.length)?cached.sources:talafSources;
+      }
+    }catch(e2){}
+  }
+}
+
+function openAddTalafModal(){
+  const sel=document.getElementById('tfName');
+  sel.innerHTML='<option value="">— اختر الصنف —</option>'+talafTypes.map(t=>`<option value="${t}">${t}</option>`).join('');
+  document.getElementById('tfSource').innerHTML='<option value="">— اختر المكان —</option>'+talafSources.map(t=>`<option value="${tfEsc(t)}">${tfEsc(t)}</option>`).join('');
+  document.getElementById('tfQty').value='';
+  document.getElementById('tfNotes').value='';
+  document.getElementById('tfExpiry').value='';
+  openModal('addTalafModal');
+}
+
+async function saveTalafRecord(){
+  if(document.body.classList.contains('guest-mode')) return;
+  const name=document.getElementById('tfName').value;
+  const qty=parseInt(document.getElementById('tfQty').value)||0;
+  const expiry=document.getElementById('tfExpiry').value;
+  const source=document.getElementById('tfSource').value;
+  const notes=document.getElementById('tfNotes').value.trim();
+  if(!name||!source||!qty||!expiry){ alert('يرجى اختيار الصنف والمكان وتعبئة الكمية وتاريخ الصلاحية'); return; }
+  talafRecords.unshift({
+    id:'tlf_'+Date.now()+Math.random().toString(36).slice(2,7),
+    name:name, source:source, qty:qty, expiry:expiry, notes:notes,
+    createdAt:new Date().toISOString()
+  });
+  await sbSaveTalaf();
+  closeModal('addTalafModal');
+  renderTalaf();
+}
+
+const TALAF_OLD_DAYS=30;
+function tfEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function talafAgeDays(r){
+  if(!r.createdAt) return 0;
+  return Math.max(0,Math.floor((Date.now()-new Date(r.createdAt).getTime())/86400000));
+}
+function talafGuest(){ return document.body.classList.contains('guest-mode'); }
+
+// ── تبديل (كلي أو جزئي) ──
+function openReplaceTalaf(id){
+  if(talafGuest()) return;
+  const rec=talafRecords.find(r=>r.id===id);
+  if(!rec) return;
+  document.getElementById('rpId').value=id;
+  document.getElementById('rpInfo').innerHTML='الصنف: <strong style="color:var(--text)">'+tfEsc(rec.name)+'</strong> — الكمية المسجلة: <strong style="color:var(--amber)">'+rec.qty+'</strong>';
+  document.getElementById('rpQty').value=rec.qty;
+  document.getElementById('rpQty').max=rec.qty;
+  document.getElementById('rpDate').value=new Date().toISOString().split('T')[0];
+  openModal('replaceTalafModal');
+}
+
+async function confirmReplaceTalaf(){
+  if(talafGuest()) return;
+  const id=document.getElementById('rpId').value;
+  const rec=talafRecords.find(r=>r.id===id);
+  if(!rec) return;
+  const qty=parseInt(document.getElementById('rpQty').value)||0;
+  const date=document.getElementById('rpDate').value;
+  if(!qty||qty<1||!date){ alert('يرجى إدخال الكمية وتاريخ التبديل'); return; }
+  if(qty>rec.qty){ alert('الكمية المبدّلة أكبر من الكمية المسجلة ('+rec.qty+')'); return; }
+  talafHistory.unshift({
+    id:'tlfh_'+Date.now()+Math.random().toString(36).slice(2,7),
+    origId:rec.id, name:rec.name, source:rec.source||'', qty:qty, expiry:rec.expiry, notes:rec.notes,
+    createdAt:rec.createdAt, replacedDate:date
+  });
+  if(qty===rec.qty) talafRecords=talafRecords.filter(r=>r.id!==id);
+  else rec.qty-=qty;
+  await sbSaveTalaf();
+  closeModal('replaceTalafModal');
+  renderTalaf();
+}
+
+// ── تعديل سجل ──
+function openEditTalaf(id){
+  if(talafGuest()) return;
+  const rec=talafRecords.find(r=>r.id===id);
+  if(!rec) return;
+  const names=talafTypes.includes(rec.name)?talafTypes:[...talafTypes,rec.name];
+  document.getElementById('etName').innerHTML=names.map(t=>`<option value="${tfEsc(t)}"${t===rec.name?' selected':''}>${tfEsc(t)}</option>`).join('');
+  const srcs=(rec.source&&!talafSources.includes(rec.source))?[...talafSources,rec.source]:talafSources;
+  document.getElementById('etSource').innerHTML='<option value="">— اختر المكان —</option>'+srcs.map(t=>`<option value="${tfEsc(t)}"${t===rec.source?' selected':''}>${tfEsc(t)}</option>`).join('');
+  document.getElementById('etId').value=id;
+  document.getElementById('etQty').value=rec.qty;
+  document.getElementById('etExpiry').value=rec.expiry||'';
+  document.getElementById('etNotes').value=rec.notes||'';
+  openModal('editTalafModal');
+}
+
+async function saveEditTalaf(){
+  if(talafGuest()) return;
+  const rec=talafRecords.find(r=>r.id===document.getElementById('etId').value);
+  if(!rec) return;
+  const name=document.getElementById('etName').value;
+  const qty=parseInt(document.getElementById('etQty').value)||0;
+  const expiry=document.getElementById('etExpiry').value;
+  const source=document.getElementById('etSource').value;
+  if(!name||!source||!qty||!expiry){ alert('يرجى تعبئة الصنف والمكان والكمية وتاريخ الصلاحية'); return; }
+  rec.name=name; rec.source=source; rec.qty=qty; rec.expiry=expiry;
+  rec.notes=document.getElementById('etNotes').value.trim();
+  await sbSaveTalaf();
+  closeModal('editTalafModal');
+  renderTalaf();
+}
+
+// ── تراجع عن تبديل (رجوع للقائمة) ──
+async function undoTalafHistory(id){
+  if(talafGuest()) return;
+  const h=talafHistory.find(x=>x.id===id);
+  if(!h) return;
+  if(!confirm('التراجع عن تبديل "'+h.name+'" (الكمية: '+h.qty+')؟\nسيرجع للتوالف القائمة.')) return;
+  const existing=h.origId?talafRecords.find(r=>r.id===h.origId):null;
+  if(existing){
+    existing.qty+=h.qty;
+  }else{
+    talafRecords.unshift({
+      id:h.origId||('tlf_'+Date.now()+Math.random().toString(36).slice(2,7)),
+      name:h.name, source:h.source||'', qty:h.qty, expiry:h.expiry, notes:h.notes,
+      createdAt:h.createdAt||new Date().toISOString()
+    });
+  }
+  talafHistory=talafHistory.filter(x=>x.id!==id);
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
+// ── تصدير ──
+function exportTalafXLS(){
+  if(typeof XLSX==='undefined'){ alert('مكتبة Excel غير محمّلة'); return; }
+  const cur=[['الصنف','المكان','الكمية','تاريخ الصلاحية','تاريخ التسجيل','أيام الانتظار','ملاحظات']];
+  [...talafRecords].sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||'')).forEach(r=>{
+    cur.push([r.name,r.source||'',r.qty,r.expiry||'',(r.createdAt||'').split('T')[0],talafAgeDays(r),r.notes||'']);
+  });
+  const his=[['الصنف','المكان','الكمية','تاريخ الصلاحية','تاريخ التبديل','ملاحظات']];
+  [...talafHistory].forEach(h=>his.push([h.name,h.source||'',h.qty,h.expiry||'',h.replacedDate,h.notes||'']));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(cur),'التوالف الحالية');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(his),'هيستوري التبديل');
+  XLSX.writeFile(wb,'توالف_'+new Date().toISOString().split('T')[0]+'.xlsx');
+}
+
+function printTalaf(){
+  const list=[...talafRecords].sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||''));
+  const total=list.reduce((s,r)=>s+(Number(r.qty)||0),0);
+  const totals={};
+  list.forEach(r=>{totals[r.name]=(totals[r.name]||0)+(Number(r.qty)||0);});
+  const sumRows=Object.entries(totals).sort((a,b)=>b[1]-a[1]).map(([n,q])=>`<tr><td style="text-align:right"><strong>${tfEsc(n)}</strong></td><td><strong>${q}</strong></td></tr>`).join('');
+  const summaryHtml=list.length?`<h3 style="margin-top:28px;text-align:center">ملخص إجمالي كل صنف</h3>
+    <table style="max-width:420px;margin:0 auto;page-break-inside:avoid"><thead><tr><th>الصنف</th><th>إجمالي الكمية</th></tr></thead><tbody>${sumRows}</tbody></table>`:'';
+  const rows=list.length?list.map((r,i)=>`<tr><td>${i+1}</td><td>${tfEsc(r.name)}</td><td>${tfEsc(r.source||'—')}</td><td>${r.qty}</td><td>${tfEsc(r.expiry||'—')}</td><td>${(r.createdAt||'').split('T')[0]||'—'}</td><td>${tfEsc(r.notes||'')}</td></tr>`).join(''):'<tr><td colspan="7" style="text-align:center">لا توجد توالف</td></tr>';
+  const win=window.open('','_blank');
+  if(!win){ alert('اسمح بالنوافذ المنبثقة للطباعة'); return; }
+  win.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>قائمة التوالف</title>
+  <style>
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;padding:24px;color:#111}
+    h2{text-align:center;margin-bottom:4px}
+    .sub{text-align:center;font-size:13px;color:#555;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:#7494ec;color:#fff;padding:8px;border:1px solid #ccc}
+    td{padding:7px 10px;border:1px solid #ccc;text-align:center}
+    tr:nth-child(even){background:#f5f7ff}
+    .print-btn{display:block;margin:16px auto;padding:10px 30px;background:#7494ec;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer}
+    @media print{.print-btn{display:none}}
+  </style></head><body>
+    <h2>مستشفى الطوارئ — جامعة المنصورة</h2>
+    <div class="sub">قائمة التوالف بانتظار التبديل — بتاريخ ${new Date().toISOString().split('T')[0]}</div>
+    <table><thead><tr><th>#</th><th>الصنف</th><th>المكان</th><th>الكمية</th><th>تاريخ الصلاحية</th><th>تاريخ التسجيل</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
+    ${summaryHtml}
+    <button class="print-btn" onclick="window.print()">🖨️ طباعة / حفظ PDF</button>
+  </body></html>`);
+  win.document.close();
+}
+
+// ── الداش بورد ──
+function renderDashTalaf(){
+  const box=document.getElementById('dashTalaf');
+  if(!box) return;
+  const sum=document.getElementById('dashTalafSummary');
+  if(!talafRecords.length){
+    box.innerHTML='<div style="padding:12px 14px;font-size:12px;color:var(--text2)">لا توجد توالف بانتظار التبديل ✅</div>';
+    if(sum) sum.textContent='';
+    return;
+  }
+  const total=talafRecords.reduce((s,r)=>s+(Number(r.qty)||0),0);
+  const oldCount=talafRecords.filter(r=>talafAgeDays(r)>TALAF_OLD_DAYS).length;
+  if(sum) sum.textContent='— '+talafRecords.length+' سجل • '+total+' وحدة'+(oldCount?' • ⚠️ '+oldCount+' متأخر':'');
+  const list=[...talafRecords].sort((a,b)=>talafAgeDays(b)-talafAgeDays(a)).slice(0,6);
+  box.innerHTML=list.map(r=>{
+    const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px"><strong>${tfEsc(r.name)}</strong> <span style="color:var(--amber);font-weight:700;margin-right:6px">× ${r.qty}</span>${r.source?`<span style="color:var(--teal);font-size:11px;margin-right:6px">📍 ${tfEsc(r.source)}</span>`:''}</span>
+      <span style="font-size:11px;color:${old?'var(--red)':'var(--text3)'};font-weight:${old?'700':'400'}">${old?'⚠️ ':''}منذ ${age} يوم</span>
+    </div>`;
+  }).join('')+(talafRecords.length>6?`<div style="padding:7px 14px;font-size:11px;color:var(--text3)">+ ${talafRecords.length-6} سجل آخر...</div>`:'');
+}
+
+async function addTalafType(){
+  if(document.body.classList.contains('guest-mode')) return;
+  const input=document.getElementById('talafNewType');
+  const name=input.value.trim();
+  if(!name) return;
+  if(talafTypes.some(t=>t.toLowerCase()===name.toLowerCase())){
+    alert('هذا الصنف موجود بالفعل في القائمة');
+    return;
+  }
+  talafTypes.push(name);
+  input.value='';
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
+async function removeTalafType(name){
+  if(document.body.classList.contains('guest-mode')) return;
+  const usedCount=talafRecords.filter(r=>r.name===name).length;
+  const msg=usedCount
+    ? 'تحذير: يوجد '+usedCount+' سجل تالف مسجل بهذا الصنف، لن يتم حذف السجلات لكن الصنف لن يظهر عند إضافة تالف جديد.\nهل تريد حذف "'+name+'" من قائمة الأصناف؟'
+    : 'هل تريد حذف "'+name+'" من قائمة الأصناف المتاح بها توالف؟';
+  if(!confirm(msg)) return;
+  talafTypes=talafTypes.filter(t=>t!==name);
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
+async function addTalafSource(){
+  if(talafGuest()) return;
+  const input=document.getElementById('talafNewSource');
+  const name=input.value.trim();
+  if(!name) return;
+  if(talafSources.some(t=>t.toLowerCase()===name.toLowerCase())){ alert('هذا المكان موجود بالفعل'); return; }
+  talafSources.push(name);
+  input.value='';
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
+async function removeTalafSource(idx){
+  if(talafGuest()) return;
+  const name=talafSources[idx];
+  if(name===undefined) return;
+  const used=talafRecords.filter(r=>r.source===name).length;
+  const msg=used
+    ? 'تحذير: يوجد '+used+' سجل تالف من "'+name+'"، لن يتم حذف السجلات لكن المكان لن يظهر عند التسجيل الجديد.\nهل تريد حذف المكان؟'
+    : 'هل تريد حذف "'+name+'" من قائمة الأماكن؟';
+  if(!confirm(msg)) return;
+  talafSources.splice(idx,1);
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
+function renderTalaf(){
+  const tbody=document.getElementById('talafTbody');
+  const typesEl=document.getElementById('talafTypesList');
+  if(!tbody||!typesEl) return;
+
+  // قائمة الأصناف القابلة للحذف/الإضافة
+  typesEl.innerHTML=talafTypes.length
+    ? talafTypes.map(t=>`
+        <span class="badge badge-teal" style="font-size:12px;padding:6px 10px">
+          ${t}
+          <span onclick="removeTalafType('${t.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-right:6px;color:var(--red);font-weight:800" title="حذف الصنف">✕</span>
+        </span>`).join('')
+    : '<div style="color:var(--text3);font-size:12px">لا توجد أصناف مضافة بعد</div>';
+
+  // قائمة الأماكن
+  const srcEl=document.getElementById('talafSourcesList');
+  if(srcEl) srcEl.innerHTML=talafSources.length
+    ? talafSources.map((t,i)=>`
+        <span class="badge badge-teal" style="font-size:12px;padding:6px 10px">
+          📍 ${tfEsc(t)}
+          <span onclick="removeTalafSource(${i})" style="cursor:pointer;margin-right:6px;color:var(--red);font-weight:800" title="حذف المكان">✕</span>
+        </span>`).join('')
+    : '<div style="color:var(--text3);font-size:12px">لا توجد أماكن مضافة بعد</div>';
+
+  // فلترة بالبحث
+  const q=(document.getElementById('talafSearch')?.value||'').trim().toLowerCase();
+  const list=[...talafRecords]
+    .filter(r=>!q||r.name.toLowerCase().includes(q)||(r.source||'').toLowerCase().includes(q))
+    .sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||''));
+
+  // إحصائيات
+  const totalQty=talafRecords.reduce((s,r)=>s+(Number(r.qty)||0),0);
+  const distinctTypes=new Set(talafRecords.map(r=>r.name)).size;
+  const elCount=document.getElementById('talafStatCount'); if(elCount) elCount.textContent=talafRecords.length;
+  const elQty=document.getElementById('talafStatQty'); if(elQty) elQty.textContent=totalQty.toLocaleString();
+  const elTypes=document.getElementById('talafStatTypes'); if(elTypes) elTypes.textContent=distinctTypes;
+  const elOld=document.getElementById('talafStatOld'); if(elOld) elOld.textContent=talafRecords.filter(r=>talafAgeDays(r)>TALAF_OLD_DAYS).length;
+  const badge=document.getElementById('talafBadge');
+  if(badge){
+    if(talafRecords.length){ badge.style.display='inline-flex'; badge.textContent=talafRecords.length; }
+    else { badge.style.display='none'; }
+  }
+
+  const now=new Date();
+  if(!list.length){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text2)">لا توجد سجلات توالف حالياً</td></tr>';
+  }else{
+    tbody.innerHTML=list.map(r=>{
+      let expiryHtml='—';
+      if(r.expiry){
+        const daysLeft=Math.ceil((new Date(r.expiry)-now)/(1000*60*60*24));
+        const color=daysLeft<=0?'var(--red)':daysLeft<=15?'var(--amber)':'var(--text2)';
+        const lbl=daysLeft<=0?'منتهية':daysLeft+' يوم متبقي';
+        expiryHtml=`<div>${r.expiry}</div><div style="font-size:10px;color:${color};font-weight:700">${lbl}</div>`;
+      }
+      const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
+      const ageHtml=`<div style="font-size:10px;color:${old?'var(--red)':'var(--text3)'};font-weight:${old?'700':'400'}">${old?'⚠️ ':''}مسجل منذ ${age} يوم</div>`;
+      return `<tr>
+        <td><strong>${tfEsc(r.name)}</strong>${ageHtml}</td>
+        <td style="color:var(--teal)">${tfEsc(r.source||'—')}</td>
+        <td style="color:var(--amber);font-weight:700">${(Number(r.qty)||0).toLocaleString()}</td>
+        <td>${expiryHtml}</td>
+        <td style="color:var(--text2)">${tfEsc(r.notes||'—')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-icon btn-sm btn-green" onclick="openReplaceTalaf('${r.id}')" title="تسجيل تبديل (كلي أو جزئي)">✅ تم التبديل</button>
+          <button class="btn btn-icon btn-sm" onclick="openEditTalaf('${r.id}')" title="تعديل">✏️</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  renderTalafHistory();
+  renderDashTalaf();
+}
+
+function renderTalafHistory(){
+  const tbody=document.getElementById('talafHistoryTbody');
+  if(!tbody) return;
+  const list=[...talafHistory].sort((a,b)=>b.replacedDate.localeCompare(a.replacedDate));
+  if(!list.length){
+    tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text2)">لا يوجد سجل تبديل بعد</td></tr>';
+    return;
+  }
+  tbody.innerHTML=list.map(h=>`
+    <tr>
+      <td><strong>${tfEsc(h.name)}</strong></td>
+      <td style="color:var(--teal)">${tfEsc(h.source||'—')}</td>
+      <td style="color:var(--amber);font-weight:700">${(Number(h.qty)||0).toLocaleString()}</td>
+      <td style="color:var(--text2)">${h.expiry||'—'}</td>
+      <td style="color:var(--green);font-weight:700">${h.replacedDate}</td>
+      <td style="color:var(--text2)">${tfEsc(h.notes||'—')}</td>
+      <td style="white-space:nowrap"><button class="btn btn-icon btn-sm" onclick="undoTalafHistory('${h.id}')" title="تراجع — رجوع لقائمة التوالف">↩️</button> <button class="btn btn-icon btn-sm btn-red" onclick="deleteTalafHistory('${h.id}')" title="حذف من الهيستوري (تسجيل خطأ)">🗑️</button></td>
+    </tr>`).join('');
+}
+
+async function deleteTalafHistory(id){
+  if(document.body.classList.contains('guest-mode')) return;
+  const h=talafHistory.find(x=>x.id===id);
+  if(!h) return;
+  if(!confirm('حذف عملية تبديل "'+h.name+'" (الكمية: '+h.qty+' — بتاريخ '+h.replacedDate+') نهائياً من الهيستوري؟\nاستخدمها فقط لو كان التسجيل خطأ.')) return;
+  talafHistory=talafHistory.filter(x=>x.id!==id);
+  await sbSaveTalaf();
+  renderTalaf();
+}
+
 const DEFAULTS=[
   {name:'جلوكوز 5%',page:1},{name:'جلوكوز 10%',page:17},{name:'جلوكوز 25%',page:35},
   {name:'جلوكوز ملحي 0.9% + 5%',page:42},{name:'ملح 0.9% 500 ملي',page:46},
@@ -2044,6 +2763,8 @@ async function loadFromSupabase(){
     }catch(e){}
     try{ await sbLoadInventory(); }catch(e){ console.warn('sbLoadInventory:',e); }
     try{ await sbLoadOrders(); }catch(e){ console.warn('sbLoadOrders:',e); }
+    try{ await sbLoadTalaf(); }catch(e){ console.warn('sbLoadTalaf:',e); }
+    try{ await sbLoadItemSyncs(); }catch(e){ console.warn('sbLoadItemSyncs:',e); }
     if(!items.length) await seedItems();
     setSBStatus('online');
     const eb=document.getElementById('sbErrorBanner');
@@ -2219,6 +2940,7 @@ function renderAll(){
   renderAvg();
   fillSelects();
   updateDeficitBadge();
+  renderTalaf();
 }
 
 function renderItemsTable(data){
@@ -2237,7 +2959,7 @@ function renderItemsTable(data){
     const stLbl={out:'<span class="badge badge-red">نفد</span>',low:'<span class="badge badge-amber">منخفض</span>',good:'<span class="badge badge-green">جيد</span>'};
     return`<tr>
       <td style="color:var(--teal);font-weight:700">${item.page}</td>
-      <td><strong>${item.name}</strong>${item.tradeName?`<div style="font-size:10px;color:var(--text3)">${item.tradeName}</div>`:''}</td>
+      <td><strong>${item.name}</strong>${item.tradeName?`<div style="font-size:10px;color:var(--text3)">${item.tradeName}</div>`:''}${itemSyncBadge(item.id)}</td>
       <td><strong style="color:${st==='out'?'var(--red)':st==='low'?'var(--amber)':'var(--text)'}">${item.stock.toLocaleString()}</strong> ${item.unit}</td>
       <td style="color:var(--text2)">${item.minStock.toLocaleString()}</td>
       <td style="color:var(--amber)">${avg>0?Math.round(avg).toLocaleString():'—'}</td>
@@ -3295,6 +4017,8 @@ function openEditItem(id){
   document.getElementById('eiUnit').value=item.unit;
   document.getElementById('eiNotes').value=item.notes||'';
   document.getElementById('eiTradeName').value=item.tradeName||'';
+  document.getElementById('eiSyncNote').value='';
+  renderItemSync(id);
   openModal('editItemModal');
 }
 
@@ -3399,11 +4123,12 @@ function viewItemMov(itemId){
   document.getElementById('imOut').textContent=totalOut.toLocaleString();
   document.getElementById('imIn').textContent=totalIn.toLocaleString();
   document.getElementById('imAvg').textContent=avgMonthly(itemId).toLocaleString();
+  const _sy=(itemSyncs[itemId]||[])[0];
   document.getElementById('imList').innerHTML=movs.length?movs.map(m=>`
     <div class="mov-item">
       <div class="mov-icon ${m.type}">${m.type==='صرف'?'📤':'📥'}</div>
       <div class="mov-info">
-        <div class="mov-title">#${m.serial} — ${m.type} — ${m.party}</div>
+        <div class="mov-title">#${m.serial} — ${m.type} — ${m.party}${_sy?(m.id===_sy.lastMovId?' <span class="badge badge-green">✅ آخر حركة مزامَنة</span>':(movTime(m)>syncRefTime(_sy)?' <span class="badge badge-amber">بعد المزامنة</span>':'')):''}</div>
         <div class="mov-sub">إذن/فاتورة: ${m.docNo} · ${m.staffName} · ${fmt(m.date)}${m.notes?' · '+m.notes:''}</div>
       </div>
       <div class="mov-qty ${m.type}">${m.type==='صرف'?'−':'+'}${m.qty.toLocaleString()}</div>
@@ -3780,7 +4505,7 @@ function gotoPage(p){
   if(p==='add-movement') setTimeout(fillPartyDropdown,100);
   if(p==='analytics') setTimeout(function(){fillAnalyticsParties();renderAnalytics();},100);
   if(p==='itemAnalytics') setTimeout(function(){fillItemAnalyticsItems();renderItemAnalytics();},100);
-  const titles={dashboard:['لوحة التحكم','نظرة عامة على المخزن'],items:['الأصناف','كل أصناف مخزن المحاليل'],movements:['سجل الحركات','كل عمليات الصرف والاستلام'],'add-movement':['حركة جديدة','تسجيل صرف أو استلام'],inventory:['الجرد الذكي','تسجيل وتحليل جرد المخزن'],reports:['التقارير','إحصائيات ومعدلات الصرف'],orders:['الطلبيات الشهرية','إدارة طلبيات المحاليل والاستعجال'],
+  const titles={dashboard:['لوحة التحكم','نظرة عامة على المخزن'],items:['الأصناف','كل أصناف مخزن المحاليل'],movements:['سجل الحركات','كل عمليات الصرف والاستلام'],'add-movement':['حركة جديدة','تسجيل صرف أو استلام'],inventory:['الجرد الذكي','تسجيل وتحليل جرد المخزن'],talaf:['التوالف','محاليل بانتظار التبديل من الشركة المصنعة'],reports:['التقارير','إحصائيات ومعدلات الصرف'],orders:['الطلبيات الشهرية','إدارة طلبيات المحاليل والاستعجال'],
     analytics:['تحليل الجهات','معدلات الصرف والاستهلاك لكل جهة'],itemAnalytics:['تحليل الأصناف','معدلات الصرف والجهات المستفيدة لكل صنف'],staff:['الموظفون','إدارة فريق المخزن'],settings:['الإعدادات','إعدادات النظام والمزامنة']};
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
@@ -3796,6 +4521,7 @@ function gotoPage(p){
   document.getElementById('topSub').textContent=info[1];
   if(p==='reports')renderAvg();
   if(p==='inventory')renderInventoryHistory();
+  if(p==='talaf')renderTalaf();
   document.getElementById('sidebar').classList.remove('open');
 }
 function openModal(id){document.getElementById(id).classList.add('open')}
