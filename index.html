@@ -1254,27 +1254,11 @@ body.guest-mode #orderTbody select {
     <!-- ══════════ TALAF (توالف) ══════════ -->
     <div id="page-talaf" class="page">
 
-      <div class="stats-row" style="margin-bottom:16px">
-        <div class="stat-card amber">
-          <div class="stat-icon">♻️</div>
-          <div class="stat-val" id="talafStatCount">0</div>
-          <div class="stat-lbl">سجل تالف قائم</div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">📦 التوالف حسب الصنف</div>
         </div>
-        <div class="stat-card red">
-          <div class="stat-icon">📦</div>
-          <div class="stat-val" id="talafStatQty">0</div>
-          <div class="stat-lbl">إجمالي الكمية التالفة</div>
-        </div>
-        <div class="stat-card blue">
-          <div class="stat-icon">💊</div>
-          <div class="stat-val" id="talafStatTypes">0</div>
-          <div class="stat-lbl">صنف مختلف مسجل حالياً</div>
-        </div>
-        <div class="stat-card red">
-          <div class="stat-icon">⚠️</div>
-          <div class="stat-val" id="talafStatOld">0</div>
-          <div class="stat-lbl">متأخرة أكثر من 30 يوم</div>
-        </div>
+        <div class="card-body no-pad" id="talafByItemBox"></div>
       </div>
 
       <div class="card">
@@ -1293,7 +1277,7 @@ body.guest-mode #orderTbody select {
           <div class="tbl-wrap">
             <table>
               <thead><tr>
-                <th>الصنف</th><th>المكان</th><th>الكمية</th><th>تاريخ الصلاحية</th><th>ملاحظات</th><th>إجراءات</th>
+                <th style="width:24px"></th><th>تاريخ التسجيل</th><th>المكان</th><th>عدد الأصناف</th><th>إجمالي الكمية</th><th>ملاحظات</th>
               </tr></thead>
               <tbody id="talafTbody"></tbody>
             </table>
@@ -1755,25 +1739,23 @@ function syncFromSupabase() {
 
 <!-- Add Talaf Record -->
 <div class="overlay" id="addTalafModal">
-  <div class="modal">
+  <div class="modal" style="max-width:640px">
     <div class="modal-head"><h3>♻️ تسجيل تالف جديد</h3><button class="close-btn" onclick="closeModal('addTalafModal')">✕</button></div>
     <div class="modal-body">
       <div class="form-grid">
         <div class="fg">
-          <label>الصنف *</label>
-          <select id="tfName"><option value="">— اختر الصنف —</option></select>
-        </div>
-        <div class="fg">
           <label>المكان (مصدر التالف) *</label>
           <select id="tfSource"><option value="">— اختر المكان —</option></select>
         </div>
-        <div class="fg"><label>الكمية *</label><input id="tfQty" type="number" min="1" placeholder="0"></div>
-        <div class="fg"><label>تاريخ صلاحية الصنف *</label><input id="tfExpiry" type="date" style="direction:ltr"></div>
-        <div class="fg span-all"><label>ملاحظات</label><input id="tfNotes" placeholder="اختياري"></div>
+        <div class="fg"><label>ملاحظات على التسجيل</label><input id="tfNotes" placeholder="اختياري"></div>
       </div>
+      <div style="margin-top:14px;font-weight:700;font-size:13px">الأصناف</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">أضف أكتر من صنف، وممكن تكرر نفس الصنف بتاريخ صلاحية مختلف</div>
+      <div id="tfRows"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addTalafRow()">➕ إضافة صنف تاني</button>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-teal" onclick="saveTalafRecord()">💾 حفظ</button>
+      <button class="btn btn-teal" onclick="saveTalafRecord()">💾 حفظ الكل</button>
       <button class="btn btn-ghost" onclick="closeModal('addTalafModal')">إلغاء</button>
     </div>
   </div>
@@ -2302,6 +2284,12 @@ let talafTypes=['امينوليبان','اميبارين','كيدمن'];
 let talafRecords=[];
 let talafHistory=[];
 let talafSources=['صيدلية العمليات','صيدلية الرابع','صيدلية الخامس'];
+let talafExpandedBatches=new Set();
+function toggleTalafBatch(batchId){
+  if(talafExpandedBatches.has(batchId)) talafExpandedBatches.delete(batchId);
+  else talafExpandedBatches.add(batchId);
+  renderTalaf();
+}
 
 async function sbSaveTalaf(){
   localStorage.setItem('rx_talaf',JSON.stringify({types:talafTypes,records:talafRecords,history:talafHistory,sources:talafSources}));
@@ -2340,28 +2328,64 @@ async function sbLoadTalaf(){
   }
 }
 
+let tfRowSeq=0;
+function tfNameOptions(selected){
+  return '<option value="">— اختر —</option>'+talafTypes.map(t=>`<option value="${tfEsc(t)}"${t===selected?' selected':''}>${tfEsc(t)}</option>`).join('');
+}
+function addTalafRow(){
+  tfRowSeq++;
+  const id='tfr_'+tfRowSeq;
+  const wrap=document.getElementById('tfRows');
+  const div=document.createElement('div');
+  div.className='tf-row';
+  div.id=id;
+  div.style.cssText='display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap;padding:8px;border:1px solid var(--border);border-radius:8px';
+  div.innerHTML=`
+    <div class="fg" style="flex:1.4;min-width:140px;margin:0"><label style="font-size:11px">الصنف</label><select class="tfr-name">${tfNameOptions()}</select></div>
+    <div class="fg" style="flex:0.7;min-width:80px;margin:0"><label style="font-size:11px">الكمية</label><input class="tfr-qty" type="number" min="1" placeholder="0"></div>
+    <div class="fg" style="flex:1;min-width:130px;margin:0"><label style="font-size:11px">تاريخ الصلاحية</label><input class="tfr-expiry" type="date" style="direction:ltr"></div>
+    <button type="button" class="btn btn-icon btn-sm btn-red" style="margin-bottom:2px" onclick="removeTalafRow('${id}')" title="حذف الصف">🗑️</button>`;
+  wrap.appendChild(div);
+}
+function removeTalafRow(id){
+  const el=document.getElementById(id);
+  if(!el) return;
+  if(document.getElementById('tfRows').children.length<=1){ alert('لازم يفضل صنف واحد على الأقل'); return; }
+  el.remove();
+}
+
 function openAddTalafModal(){
-  const sel=document.getElementById('tfName');
-  sel.innerHTML='<option value="">— اختر الصنف —</option>'+talafTypes.map(t=>`<option value="${t}">${t}</option>`).join('');
   document.getElementById('tfSource').innerHTML='<option value="">— اختر المكان —</option>'+talafSources.map(t=>`<option value="${tfEsc(t)}">${tfEsc(t)}</option>`).join('');
-  document.getElementById('tfQty').value='';
   document.getElementById('tfNotes').value='';
-  document.getElementById('tfExpiry').value='';
+  document.getElementById('tfRows').innerHTML='';
+  addTalafRow();
   openModal('addTalafModal');
 }
 
 async function saveTalafRecord(){
   if(document.body.classList.contains('guest-mode')) return;
-  const name=document.getElementById('tfName').value;
-  const qty=parseInt(document.getElementById('tfQty').value)||0;
-  const expiry=document.getElementById('tfExpiry').value;
   const source=document.getElementById('tfSource').value;
-  const notes=document.getElementById('tfNotes').value.trim();
-  if(!name||!source||!qty||!expiry){ alert('يرجى اختيار الصنف والمكان وتعبئة الكمية وتاريخ الصلاحية'); return; }
-  talafRecords.unshift({
-    id:'tlf_'+Date.now()+Math.random().toString(36).slice(2,7),
-    name:name, source:source, qty:qty, expiry:expiry, notes:notes,
-    createdAt:new Date().toISOString()
+  const batchNotes=document.getElementById('tfNotes').value.trim();
+  if(!source){ alert('يرجى اختيار المكان'); return; }
+  const rows=[...document.querySelectorAll('#tfRows .tf-row')];
+  const lines=[];
+  for(const row of rows){
+    const name=row.querySelector('.tfr-name').value;
+    const qty=parseInt(row.querySelector('.tfr-qty').value)||0;
+    const expiry=row.querySelector('.tfr-expiry').value;
+    if(!name&&!qty&&!expiry) continue; // صف فاضي اتجاهل
+    if(!name||!qty||!expiry){ alert('يرجى تعبئة الصنف والكمية وتاريخ الصلاحية في كل صف مُدخل'); return; }
+    lines.push({name,qty,expiry});
+  }
+  if(!lines.length){ alert('أضف صنف واحد على الأقل'); return; }
+  const batchId='batch_'+Date.now()+Math.random().toString(36).slice(2,6);
+  const createdAt=new Date().toISOString();
+  lines.forEach(l=>{
+    talafRecords.unshift({
+      id:'tlf_'+Date.now()+Math.random().toString(36).slice(2,7),
+      batchId, name:l.name, source, qty:l.qty, expiry:l.expiry, notes:batchNotes,
+      createdAt
+    });
   });
   await sbSaveTalaf();
   closeModal('addTalafModal');
@@ -2400,7 +2424,7 @@ async function confirmReplaceTalaf(){
   if(qty>rec.qty){ alert('الكمية المبدّلة أكبر من الكمية المسجلة ('+rec.qty+')'); return; }
   talafHistory.unshift({
     id:'tlfh_'+Date.now()+Math.random().toString(36).slice(2,7),
-    origId:rec.id, name:rec.name, source:rec.source||'', qty:qty, expiry:rec.expiry, notes:rec.notes,
+    origId:rec.id, batchId:rec.batchId||rec.id, name:rec.name, source:rec.source||'', qty:qty, expiry:rec.expiry, notes:rec.notes,
     createdAt:rec.createdAt, replacedDate:date
   });
   if(qty===rec.qty) talafRecords=talafRecords.filter(r=>r.id!==id);
@@ -2454,6 +2478,7 @@ async function undoTalafHistory(id){
   }else{
     talafRecords.unshift({
       id:h.origId||('tlf_'+Date.now()+Math.random().toString(36).slice(2,7)),
+      batchId:h.batchId||h.origId||('batch_'+Date.now()+Math.random().toString(36).slice(2,6)),
       name:h.name, source:h.source||'', qty:h.qty, expiry:h.expiry, notes:h.notes,
       createdAt:h.createdAt||new Date().toISOString()
     });
@@ -2511,6 +2536,69 @@ function printTalaf(){
 }
 
 // ── الداش بورد ──
+let talafPageExpanded=new Set();
+function toggleTalafPageItem(name){
+  if(talafPageExpanded.has(name)) talafPageExpanded.delete(name);
+  else talafPageExpanded.add(name);
+  renderTalafByItem();
+}
+function renderTalafByItem(){
+  const box=document.getElementById('talafByItemBox');
+  if(!box) return;
+  if(!talafRecords.length){
+    box.innerHTML='<div style="padding:16px 14px;font-size:12px;color:var(--text2)">لا توجد توالف بانتظار التبديل ✅</div>';
+    return;
+  }
+  const groups={};
+  talafRecords.forEach(r=>{
+    const key=r.name||'—';
+    if(!groups[key]) groups[key]={name:key,qty:0,items:[]};
+    groups[key].qty+=Number(r.qty)||0;
+    groups[key].items.push(r);
+  });
+  const list=Object.values(groups).sort((a,b)=>b.qty-a.qty);
+  const now=new Date();
+  box.innerHTML=list.map(g=>{
+    const open=talafPageExpanded.has(g.name);
+    const groupOld=g.items.some(r=>talafAgeDays(r)>TALAF_OLD_DAYS);
+    const detailRows=[...g.items].sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||'')).map(r=>{
+      let expiryHtml='—';
+      if(r.expiry){
+        const daysLeft=Math.ceil((new Date(r.expiry)-now)/(1000*60*60*24));
+        const c=daysLeft<=0?'var(--red)':daysLeft<=15?'var(--amber)':'var(--text2)';
+        const lbl=daysLeft<=0?'منتهية':daysLeft+' يوم متبقي';
+        expiryHtml=`<span style="color:${c}">${r.expiry} <span style="font-size:10px">(${lbl})</span></span>`;
+      }
+      const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
+      return `<tr>
+        <td>${expiryHtml}</td>
+        <td style="color:var(--amber);font-weight:700">${(Number(r.qty)||0).toLocaleString()}</td>
+        <td style="color:var(--teal)">📍 ${tfEsc(r.source||'—')}</td>
+        <td style="color:${old?'var(--red)':'var(--text3)'};font-size:11px">${old?'⚠️ ':''}منذ ${age} يوم</td>
+      </tr>`;
+    }).join('');
+    return `<div style="border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer" onclick="toggleTalafPageItem('${(g.name||'').replace(/'/g,"\\'")}')">
+        <span style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <span style="display:inline-block;transition:transform .15s;transform:rotate(${open?90:0}deg);color:var(--text3)">▶</span>
+          <strong>${tfEsc(g.name)}</strong>
+          ${groupOld?'<span style="color:var(--red);font-size:11px">⚠️</span>':''}
+        </span>
+        <span style="font-size:13px"><span style="color:var(--amber);font-weight:700">${g.qty.toLocaleString()}</span> <span style="color:var(--text3);font-size:11px">(${g.items.length} تسجيل)</span></span>
+      </div>
+      ${open?`<div style="padding:0 14px 10px 14px"><table style="width:100%"><thead><tr>
+        <th style="font-size:11px">تاريخ الصلاحية</th><th style="font-size:11px">الكمية</th><th style="font-size:11px">المكان</th><th style="font-size:11px">مسجل منذ</th>
+      </tr></thead><tbody>${detailRows}</tbody></table></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+let dashTalafExpanded=new Set();
+function toggleDashTalaf(name){
+  if(dashTalafExpanded.has(name)) dashTalafExpanded.delete(name);
+  else dashTalafExpanded.add(name);
+  renderDashTalaf();
+}
 function renderDashTalaf(){
   const box=document.getElementById('dashTalaf');
   if(!box) return;
@@ -2523,14 +2611,47 @@ function renderDashTalaf(){
   const total=talafRecords.reduce((s,r)=>s+(Number(r.qty)||0),0);
   const oldCount=talafRecords.filter(r=>talafAgeDays(r)>TALAF_OLD_DAYS).length;
   if(sum) sum.textContent='— '+talafRecords.length+' سجل • '+total+' وحدة'+(oldCount?' • ⚠️ '+oldCount+' متأخر':'');
-  const list=[...talafRecords].sort((a,b)=>talafAgeDays(b)-talafAgeDays(a)).slice(0,6);
-  box.innerHTML=list.map(r=>{
-    const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border)">
-      <span style="font-size:12px"><strong>${tfEsc(r.name)}</strong> <span style="color:var(--amber);font-weight:700;margin-right:6px">× ${r.qty}</span>${r.source?`<span style="color:var(--teal);font-size:11px;margin-right:6px">📍 ${tfEsc(r.source)}</span>`:''}</span>
-      <span style="font-size:11px;color:${old?'var(--red)':'var(--text3)'};font-weight:${old?'700':'400'}">${old?'⚠️ ':''}منذ ${age} يوم</span>
+
+  // تجميع حسب اسم الصنف
+  const groups={};
+  talafRecords.forEach(r=>{
+    if(!groups[r.name]) groups[r.name]={name:r.name,qty:0,items:[]};
+    groups[r.name].qty+=Number(r.qty)||0;
+    groups[r.name].items.push(r);
+  });
+  const list=Object.values(groups).sort((a,b)=>b.qty-a.qty);
+  const now=new Date();
+  box.innerHTML=list.map(g=>{
+    const open=dashTalafExpanded.has(g.name);
+    const groupOld=g.items.some(r=>talafAgeDays(r)>TALAF_OLD_DAYS);
+    const detail=[...g.items].sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||'')).map(r=>{
+      const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
+      let expLbl='—';
+      if(r.expiry){
+        const daysLeft=Math.ceil((new Date(r.expiry)-now)/(1000*60*60*24));
+        const c=daysLeft<=0?'var(--red)':daysLeft<=15?'var(--amber)':'var(--text3)';
+        expLbl=`<span style="color:${c}">${r.expiry}${daysLeft<=0?' (منتهية)':''}</span>`;
+      }
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 14px 5px 28px;font-size:11px;border-bottom:1px dashed var(--border)">
+        <span style="color:var(--text2)">📅 ${expLbl} &nbsp;•&nbsp; 📍 ${tfEsc(r.source||'—')}</span>
+        <span>
+          <span style="color:var(--amber);font-weight:700">× ${r.qty}</span>
+          <span style="color:${old?'var(--red)':'var(--text3)'};margin-right:6px">${old?'⚠️ ':''}منذ ${age} يوم</span>
+        </span>
+      </div>`;
+    }).join('');
+    return `<div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleDashTalaf('${(g.name||'').replace(/'/g,"\\'")}')">
+        <span style="font-size:12px;display:flex;align-items:center;gap:6px">
+          <span style="display:inline-block;transition:transform .15s;transform:rotate(${open?90:0}deg);color:var(--text3)">▶</span>
+          <strong>${tfEsc(g.name)}</strong>
+          ${groupOld?'<span style="color:var(--red);font-size:11px">⚠️</span>':''}
+        </span>
+        <span style="font-size:12px"><span style="color:var(--amber);font-weight:700">${g.qty.toLocaleString()}</span> <span style="color:var(--text3);font-size:11px">(${g.items.length} تسجيل)</span></span>
+      </div>
+      ${open?detail:''}
     </div>`;
-  }).join('')+(talafRecords.length>6?`<div style="padding:7px 14px;font-size:11px;color:var(--text3)">+ ${talafRecords.length-6} سجل آخر...</div>`:'');
+  }).join('');
 }
 
 async function addTalafType(){
@@ -2612,9 +2733,7 @@ function renderTalaf(){
 
   // فلترة بالبحث
   const q=(document.getElementById('talafSearch')?.value||'').trim().toLowerCase();
-  const list=[...talafRecords]
-    .filter(r=>!q||r.name.toLowerCase().includes(q)||(r.source||'').toLowerCase().includes(q))
-    .sort((a,b)=>(a.expiry||'').localeCompare(b.expiry||''));
+  const filtered=talafRecords.filter(r=>!q||(r.name||'').toLowerCase().includes(q)||(r.source||'').toLowerCase().includes(q));
 
   // إحصائيات
   const totalQty=talafRecords.reduce((s,r)=>s+(Number(r.qty)||0),0);
@@ -2630,41 +2749,70 @@ function renderTalaf(){
   }
 
   const now=new Date();
-  if(!list.length){
-    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text2)">لا توجد سجلات توالف حالياً</td></tr>';
-  }else{
-    tbody.innerHTML=list.map(r=>{
-      let expiryHtml='—';
-      if(r.expiry){
-        const daysLeft=Math.ceil((new Date(r.expiry)-now)/(1000*60*60*24));
-        const color=daysLeft<=0?'var(--red)':daysLeft<=15?'var(--amber)':'var(--text2)';
-        const lbl=daysLeft<=0?'منتهية':daysLeft+' يوم متبقي';
-        expiryHtml=`<div>${r.expiry}</div><div style="font-size:10px;color:${color};font-weight:700">${lbl}</div>`;
-      }
-      const age=talafAgeDays(r), old=age>TALAF_OLD_DAYS;
-      const ageHtml=`<div style="font-size:10px;color:${old?'var(--red)':'var(--text3)'};font-weight:${old?'700':'400'}">${old?'⚠️ ':''}مسجل منذ ${age} يوم</div>`;
-      return `<tr>
-        <td><strong>${tfEsc(r.name)}</strong>${ageHtml}</td>
-        <td style="color:var(--teal)">${tfEsc(r.source||'—')}</td>
-        <td style="color:var(--amber);font-weight:700">${(Number(r.qty)||0).toLocaleString()}</td>
-        <td>${expiryHtml}</td>
-        <td style="color:var(--text2)">${tfEsc(r.notes||'—')}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-icon btn-sm btn-green" onclick="openReplaceTalaf('${r.id}')" title="تسجيل تبديل (كلي أو جزئي)">✅ تم التبديل</button>
-          <button class="btn btn-icon btn-sm" onclick="openEditTalaf('${r.id}')" title="تعديل">✏️</button>
-        </td>
-      </tr>`;
-    }).join('');
-  }
+  try{
+    // تجميع السجلات في دفعات تسجيل (batch)
+    const batchMap={};
+    filtered.forEach(r=>{
+      const bid=r.batchId||r.id; // سجلات قديمة من غير batchId تتعامل كدفعة مستقلة
+      if(!batchMap[bid]) batchMap[bid]={batchId:bid,source:r.source,createdAt:r.createdAt,notes:r.notes,items:[]};
+      batchMap[bid].items.push(r);
+    });
+    const batches=Object.values(batchMap).sort((a,b)=>{
+      const ea=a.items.reduce((m,r)=>!m||(r.expiry&&r.expiry<m)?r.expiry:m,'');
+      const eb=b.items.reduce((m,r)=>!m||(r.expiry&&r.expiry<m)?r.expiry:m,'');
+      return (ea||'').localeCompare(eb||'');
+    });
 
-  renderTalafHistory();
-  renderDashTalaf();
+    if(!batches.length){
+      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text2)">لا توجد سجلات توالف حالياً</td></tr>';
+    }else{
+      tbody.innerHTML=batches.map(b=>{
+        const bQty=b.items.reduce((s,r)=>s+(Number(r.qty)||0),0);
+        const open=talafExpandedBatches.has(b.batchId);
+        const dateStr=(b.createdAt||'').split('T')[0]||'—';
+        const detailRows=[...b.items].sort((a,b2)=>(a.expiry||'').localeCompare(b2.expiry||'')).map(r=>{
+          let expiryHtml='—';
+          if(r.expiry){
+            const daysLeft=Math.ceil((new Date(r.expiry)-now)/(1000*60*60*24));
+            const color=daysLeft<=0?'var(--red)':daysLeft<=15?'var(--amber)':'var(--text2)';
+            const lbl=daysLeft<=0?'منتهية':daysLeft+' يوم متبقي';
+            expiryHtml=`<div>${r.expiry}</div><div style="font-size:10px;color:${color};font-weight:700">${lbl}</div>`;
+          }
+          return `<tr>
+            <td><strong>${tfEsc(r.name)}</strong></td>
+            <td style="color:var(--amber);font-weight:700">${(Number(r.qty)||0).toLocaleString()}</td>
+            <td>${expiryHtml}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-icon btn-sm btn-green" onclick="openReplaceTalaf('${r.id}')" title="تسجيل تبديل (كلي أو جزئي)">✅ تم التبديل</button>
+              <button class="btn btn-icon btn-sm" onclick="openEditTalaf('${r.id}')" title="تعديل">✏️</button>
+            </td>
+          </tr>`;
+        }).join('');
+        return `<tr style="cursor:pointer" onclick="toggleTalafBatch('${b.batchId}')">
+          <td style="text-align:center;color:var(--text2);transition:transform .15s;display:inline-block;transform:rotate(${open?90:0}deg)">▶</td>
+          <td style="color:var(--text2)">${dateStr}</td>
+          <td style="color:var(--teal)">${tfEsc(b.source||'—')}</td>
+          <td>${b.items.length}</td>
+          <td style="color:var(--amber);font-weight:700">${bQty.toLocaleString()}</td>
+          <td style="color:var(--text2)">${tfEsc(b.notes||'—')}</td>
+        </tr>
+        ${open?`<tr><td></td><td colspan="5" style="padding:0 0 10px 0;background:rgba(120,148,236,0.04)">
+          <table style="width:100%"><thead><tr><th style="font-size:11px">الصنف</th><th style="font-size:11px">الكمية</th><th style="font-size:11px">تاريخ الصلاحية</th><th style="font-size:11px">إجراءات</th></tr></thead>
+          <tbody>${detailRows}</tbody></table>
+        </td></tr>`:''}`;
+      }).join('');
+    }
+  }catch(e){ console.error('❌ renderTalaf (list) error:',e); }
+
+  try{ renderTalafByItem(); }catch(e){ console.error('❌ renderTalafByItem error:',e); }
+  try{ renderTalafHistory(); }catch(e){ console.error('❌ renderTalafHistory error:',e); }
+  try{ renderDashTalaf(); }catch(e){ console.error('❌ renderDashTalaf error:',e); }
 }
 
 function renderTalafHistory(){
   const tbody=document.getElementById('talafHistoryTbody');
   if(!tbody) return;
-  const list=[...talafHistory].sort((a,b)=>b.replacedDate.localeCompare(a.replacedDate));
+  const list=[...talafHistory].sort((a,b)=>(b.replacedDate||'').localeCompare(a.replacedDate||''));
   if(!list.length){
     tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text2)">لا يوجد سجل تبديل بعد</td></tr>';
     return;
@@ -6213,6 +6361,41 @@ function doLogout(){
   var r=sessionStorage.getItem('rx_role');
   if(r){ RX_ROLE=r; closeAuth(); }
   // else: شاشة الدخول ستظهر تلقائياً
+})();
+</script>
+
+<script>
+// ═══════════════ مزامنة تلقائية بين الموقع والبرنامج (Supabase) ═══════════════
+(function(){
+  var SYNC_MS = 20000;      // كل 20 ثانية
+  var IDLE_MS = 4000;       // لا تزامن لو المستخدم لسه لاعب في الشاشة من أقل من 4 ثواني
+  var lastAction = 0, busy = false;
+  ['click','keydown','input','touchstart'].forEach(function(ev){
+    document.addEventListener(ev, function(){ lastAction = Date.now(); }, true);
+  });
+  function userIsBusy(){
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+    if (document.querySelector('.overlay.open')) return true;
+    return (Date.now() - lastAction) < IDLE_MS;
+  }
+  function loggedIn(){
+    var o = document.getElementById('authOverlay');
+    return typeof RX_ROLE !== 'undefined' && RX_ROLE && o && o.style.display === 'none';
+  }
+  async function autoSync(){
+    if (busy || document.hidden || !navigator.onLine) return;
+    if (!loggedIn() || typeof loadFromSupabase !== 'function') return;
+    if (document.getElementById('sbErrorBanner')) return;  // فيه محاولة إعادة اتصال شغالة
+    if (userIsBusy()) return;
+    busy = true;
+    try { await loadFromSupabase(); } catch(e) { console.warn('autoSync:', e); }
+    busy = false;
+  }
+  setInterval(autoSync, SYNC_MS);
+  window.addEventListener('focus', function(){ setTimeout(autoSync, 300); });
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(autoSync, 300); });
+  window.addEventListener('online', function(){ setTimeout(autoSync, 500); });
 })();
 </script>
 </body>
