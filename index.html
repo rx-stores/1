@@ -737,7 +737,8 @@ body.guest-mode button[onclick*="undoTalafHistory"],
 body.guest-mode button[onclick*="deleteTalafHistory"],
 body.guest-mode button[onclick*="addTalafType"],
 body.guest-mode button[onclick*="addTalafSource"],
-body.guest-mode button[onclick*="syncItemLedger"] {
+body.guest-mode button[onclick*="syncItemLedger"],
+body.guest-mode button[onclick*="fixStockToExpected"] {
   display: none !important;
 }
 body.guest-mode #talafTypesList span[onclick*="removeTalafType"] {
@@ -997,6 +998,7 @@ body.guest-mode #orderTbody select {
       <div class="card">
         <div class="card-header">
           <div class="card-title">💉 أصناف المخزن</div>
+          <button class="btn btn-ghost btn-sm" onclick="openStockAudit()">🧮 تدقيق الأرصدة</button>
           <button class="btn btn-teal btn-sm" onclick="openModal('addItemModal')">+ صنف جديد</button>
         </div>
         <div class="card-body">
@@ -1761,6 +1763,28 @@ function syncFromSupabase() {
   </div>
 </div>
 
+<!-- Stock Audit -->
+<div class="overlay" id="stockAuditModal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-head"><h3>🧮 تدقيق الأرصدة</h3><button class="close-btn" onclick="closeModal('stockAuditModal')">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">بيقارن رصيد النظام بالرصيد المتوقع = (رصيد آخر مزامنة مع الدفتر) + (الحركات اللي اتسجلت بعدها). أي فرق معناه إن في حركة اتعدلت/اتحذفت بعد المزامنة أو الرصيد اتغيّر يدوياً.</div>
+      <div id="auditSummary" style="margin-bottom:10px;font-weight:700"></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>الصنف</th><th>رصيد النظام</th><th>المتوقع</th><th>الفرق</th><th>إجراء</th></tr></thead>
+        <tbody id="auditTbody"></tbody>
+      </table></div>
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-size:13px;font-weight:700">📜 سجل تغييرات الرصيد (آخر 60)</summary>
+        <div class="tbl-wrap" style="margin-top:8px"><table>
+          <thead><tr><th>الوقت</th><th>الصنف</th><th>قبل</th><th>بعد</th><th>السبب</th></tr></thead>
+          <tbody id="stockLogTbody"></tbody>
+        </table></div>
+      </details>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('stockAuditModal')">إغلاق</button></div>
+  </div>
+</div>
+
 <!-- Replace Talaf -->
 <div class="overlay" id="replaceTalafModal">
   <div class="modal">
@@ -1828,6 +1852,7 @@ function syncFromSupabase() {
         <div style="font-weight:700;font-size:13px;margin-bottom:8px">🔄 المزامنة مع الدفتر</div>
         <div id="eiSyncLast" style="font-size:12px;margin-bottom:10px"></div>
         <div id="eiSyncActionRow" style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="search-input" id="eiSyncLedger" type="number" placeholder="رصيد الدفتر الفعلي (اختياري)" style="flex:1;min-width:160px">
           <input class="search-input" id="eiSyncNote" placeholder="ملاحظة (اختياري) — مثال: صفحة 12 بالدفتر" style="flex:1;min-width:160px">
           <button class="btn btn-teal btn-sm" onclick="syncItemLedger()">🔄 تمت المزامنة الآن</button>
         </div>
@@ -2042,20 +2067,24 @@ async function sbGet(table){
 }
 
 async function sbUpsert(table,rows){
-  if(!rows||!rows.length) return;
-  const r=await fetch(SB_URL+'/rest/v1/'+table,{
-    method:'POST',
-    headers:{...sbHeaders(),'Prefer':'resolution=merge-duplicates'},
-    body:JSON.stringify(rows)
-  });
-  return r.ok;
+  if(!rows||!rows.length) return true;
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/'+table,{
+      method:'POST',
+      headers:{...sbHeaders(),'Prefer':'resolution=merge-duplicates'},
+      body:JSON.stringify(rows)
+    });
+    return r.ok;
+  }catch(e){ console.error('sbUpsert network error',table,e); return false; }
 }
 
 async function sbDelete(table,id){
-  const r=await fetch(SB_URL+'/rest/v1/'+table+'?id=eq.'+encodeURIComponent(id),{
-    method:'DELETE',headers:sbHeaders()
-  });
-  return r.ok;
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/'+table+'?id=eq.'+encodeURIComponent(id),{
+      method:'DELETE',headers:sbHeaders()
+    });
+    return r.ok;
+  }catch(e){ console.error('sbDelete network error',table,e); return false; }
 }
 
 async function sbSaveItems(){
@@ -2068,15 +2097,162 @@ async function sbSaveItems(){
 }
 
 async function sbSaveMovement(mov){
-  await sbUpsert('movements',[{
+  const row={
     id:mov.id,serial:mov.serial,type:mov.type,
     item_id:mov.itemId,item_name:mov.itemName,
     qty:mov.qty,doc_no:mov.docNo,
     party:mov.party,staff_id:mov.staffId||'',
     staff_name:mov.staffName,date:mov.date,notes:mov.notes||'',
     expiry:mov.expiry||''
+  };
+  let ok=await sbUpsert('movements',[row]);
+  if(!ok){ // احتمال إن عمود expiry مش موجود في الجدول — نجرب من غيره بدل ما نفقد الحركة
+    delete row.expiry;
+    ok=await sbUpsert('movements',[row]);
+    if(ok) console.warn('⚠️ تم حفظ الحركة بدون تاريخ الصلاحية (عمود expiry غير موجود في Supabase؟)');
+  }
+  return ok;
+}
+
+async function sbUpsertItem(i){
+  return sbUpsert('items',[{
+    id:i.id,name:i.name,page:i.page,
+    stock:i.stock,unit:i.unit||'زجاجة',
+    min_stock:i.minStock||50,notes:i.notes||'',
+    trade_name:i.tradeName||''
   }]);
 }
+async function sbPatch(table,id,obj){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/'+table+'?id=eq.'+encodeURIComponent(id),{
+      method:'PATCH',headers:sbHeaders(),body:JSON.stringify(obj)
+    });
+    return r.ok;
+  }catch(e){ return false; }
+}
+
+// ═══════════════════ محرك الرصيد الآمن ═══════════════════
+// الفكرة: الرصيد مش بيتكتب أبداً من نسخة قديمة في الذاكرة. كل تغيير بيقرأ الرصيد الحالي من
+// قاعدة البيانات ويكتب الرصيد الجديد بشرط إنه لسه زي ما قرأناه (Compare-and-Swap)، فمفيش
+// جهازين أو ضغطتين يقدروا يكتبوا فوق بعض.
+let movBusy=false;
+let stockLog=[];
+function sbEnc(v){return encodeURIComponent(v);}
+
+async function sbFetchItemStock(id){
+  const r=await fetch(SB_URL+'/rest/v1/items?select=stock&id=eq.'+sbEnc(id),{headers:sbHeaders()});
+  if(!r.ok) throw new Error('تعذّر قراءة الرصيد (HTTP '+r.status+')');
+  const rows=await r.json();
+  if(!rows.length) throw new Error('الصنف غير موجود في قاعدة البيانات');
+  return parseFloat(rows[0].stock)||0;
+}
+
+async function applyStockDelta(item,delta,reason,movId){
+  for(let a=0;a<8;a++){
+    const fresh=await sbFetchItemStock(item.id);
+    const next=Math.round((fresh+delta)*1000)/1000;
+    const r=await fetch(SB_URL+'/rest/v1/items?id=eq.'+sbEnc(item.id)+'&stock=eq.'+fresh,{
+      method:'PATCH',
+      headers:{...sbHeaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({stock:next})
+    });
+    if(!r.ok) throw new Error('تعذّر تحديث الرصيد (HTTP '+r.status+')');
+    const rows=await r.json();
+    if(rows.length){
+      item.stock=parseFloat(rows[0].stock)||0;
+      logStock({itemId:item.id,name:item.name,before:fresh,after:item.stock,delta,reason:reason||'',movId:movId||''});
+      return item.stock;
+    }
+    await sleep(80*(a+1)); // حد تاني غيّر الرصيد في نفس اللحظة — نعيد القراءة
+  }
+  throw new Error('تعذّر تحديث الرصيد بسبب تعارض متكرر — حاول مرة أخرى');
+}
+
+async function setStockAbsolute(item,value,reason){
+  const before=await sbFetchItemStock(item.id);
+  const r=await fetch(SB_URL+'/rest/v1/items?id=eq.'+sbEnc(item.id),{
+    method:'PATCH',headers:{...sbHeaders(),'Prefer':'return=representation'},
+    body:JSON.stringify({stock:value})
+  });
+  if(!r.ok) throw new Error('تعذّر حفظ الرصيد (HTTP '+r.status+')');
+  const rows=await r.json();
+  item.stock=rows.length?(parseFloat(rows[0].stock)||0):value;
+  logStock({itemId:item.id,name:item.name,before,after:item.stock,delta:item.stock-before,reason:reason||'تعديل يدوي',movId:''});
+  return item.stock;
+}
+
+async function nextSerial(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/movements?select=serial&order=serial.desc&limit=1',{headers:sbHeaders()});
+    if(r.ok){
+      const rows=await r.json();
+      const mx=rows.length?(parseInt(rows[0].serial)||0):0;
+      movCounter=Math.max(movCounter,mx);
+    }
+  }catch(e){}
+  return movCounter+1;
+}
+
+function setBtnBusy(onclickText,busy){
+  document.querySelectorAll('button[onclick="'+onclickText+'"]').forEach(b=>{
+    if(busy){ b.dataset.oldText=b.textContent; b.disabled=true; b.textContent='⏳ جاري الحفظ...'; }
+    else { b.disabled=false; if(b.dataset.oldText) b.textContent=b.dataset.oldText; }
+  });
+}
+
+// سجل تغييرات الرصيد — عشان لو حصل فرق نعرف اتغيّر امتى وبسبب إيه
+function logStock(e){
+  e.id='sl_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+  e.t=new Date().toISOString();
+  stockLog.unshift(e);
+  stockLog=stockLog.slice(0,500);
+  try{ localStorage.setItem('rx_stock_log',JSON.stringify(stockLog)); }catch(_){}
+  clearTimeout(logStock._t);
+  logStock._t=setTimeout(saveStockLogMerged,1500);
+}
+async function saveStockLogMerged(){
+  try{
+    let remote=[];
+    const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.stock_log',{headers:sbHeaders()});
+    if(r.ok){ const d=await r.json(); if(d.length&&d[0].value) remote=JSON.parse(d[0].value)||[]; }
+    const map={}; [...remote,...stockLog].forEach(x=>{ if(x&&x.id) map[x.id]=x; });
+    stockLog=Object.values(map).sort((a,b)=>String(b.t).localeCompare(String(a.t))).slice(0,500);
+    await sbUpsert('app_settings',[{key:'stock_log',value:JSON.stringify(stockLog)}]);
+  }catch(e){ console.warn('saveStockLogMerged',e); }
+}
+async function sbLoadStockLog(){
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/app_settings?select=value&key=eq.stock_log',{headers:sbHeaders()});
+    if(r.ok){ const d=await r.json(); if(d.length&&d[0].value){ stockLog=JSON.parse(d[0].value)||[]; return; } }
+  }catch(e){}
+  try{ stockLog=JSON.parse(localStorage.getItem('rx_stock_log')||'[]')||[]; }catch(e){ stockLog=[]; }
+}
+
+// مزامنة هادية: تحدّث الأرصدة والحركات من القاعدة من غير ما تبوّظ فورم شغّال عليه المستخدم
+async function silentRefresh(){
+  if(movBusy||document.hidden) return;
+  try{
+    const [iRows,mRows]=await Promise.all([sbGet('items'),sbGet('movements')]);
+    if(movBusy) return;
+    iRows.forEach(r=>{ const it=items.find(x=>x.id===r.id); if(it) it.stock=parseFloat(r.stock)||0; });
+    const newIds=mRows.map(r=>r.id).sort().join(',');
+    const oldIds=movements.map(m=>m.id).sort().join(',');
+    const itemsChanged=iRows.length!==items.length;
+    if(newIds!==oldIds||itemsChanged){
+      if(itemsChanged){
+        items=iRows.map(r=>({id:r.id,name:r.name,page:r.page,stock:parseFloat(r.stock)||0,unit:r.unit||'زجاجة',minStock:parseFloat(r.min_stock)||50,notes:r.notes||'',tradeName:r.trade_name||'',createdAt:r.created_at||new Date().toISOString()}));
+      }
+      movements=mRows.map(r=>({id:r.id,serial:parseInt(r.serial)||0,type:r.type,itemId:r.item_id,itemName:r.item_name,qty:parseFloat(r.qty)||0,docNo:r.doc_no,party:r.party,staffId:r.staff_id||'',staffName:r.staff_name,date:r.date,notes:r.notes||'',expiry:r.expiry||'',createdAt:r.created_at||new Date().toISOString()}));
+      movCounter=movements.length?Math.max(...movements.map(m=>m.serial)):0;
+    }
+    const act=document.querySelector('.page.active');
+    const busyForm=act&&(act.id==='page-add-movement'||act.id==='page-inventory');
+    const modalOpen=document.querySelector('.overlay.open');
+    if(!busyForm&&!modalOpen) renderAll();
+  }catch(e){ /* صامت */ }
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) silentRefresh(); });
+setInterval(silentRefresh,60000);
 
 async function sbSaveStaff(){
   await sbUpsert('staff',staff.map(s=>({
@@ -2186,6 +2362,7 @@ async function sbLoadItemSyncs(){
 function movTime(m){ return new Date(m.createdAt||((m.date||'1970-01-01')+'T00:00:00')).getTime(); }
 function syncRefTime(sy){
   // وقت آخر حركة وقت المزامنة؛ لو مفيش حركات نستخدم وقت المزامنة نفسه
+  if(sy.lastMovId){ const m=movements.find(x=>x.id===sy.lastMovId); if(m) return movTime(m); }
   if(sy.lastMovTime) return sy.lastMovTime;
   return sy.lastMovId?0:new Date(sy.at).getTime();
 }
@@ -2209,8 +2386,22 @@ function movesSinceSync(itemId,sy){
 
 async function syncItemLedger(){
   if(document.body.classList.contains('guest-mode')) return;
+  if(movBusy) return;
   const id=document.getElementById('eiId').value;
   const item=items.find(i=>i.id===id); if(!item) return;
+  movBusy=true;
+  try{
+    try{ item.stock=await sbFetchItemStock(id); }catch(e){ throw new Error('لا يوجد اتصال بقاعدة البيانات'); }
+    const ledgerRaw=document.getElementById('eiSyncLedger').value;
+    if(ledgerRaw!==''){
+      const ledger=parseFloat(ledgerRaw);
+      if(!isNaN(ledger)&&ledger!==item.stock){
+        if(!confirm('رصيد النظام '+item.stock+' ≠ رصيد الدفتر '+ledger+'.\nهل تضبط رصيد النظام ليساوي الدفتر؟')) { movBusy=false; return; }
+        await setStockAbsolute(item,ledger,'ضبط من الدفتر أثناء المزامنة');
+      }
+    }
+  }catch(e){ movBusy=false; alert('❌ '+(e.message||e)); return; }
+  movBusy=false;
   const last=lastMovOf(id);
   const entry={
     id:'sy_'+Date.now(),
@@ -2231,8 +2422,11 @@ async function syncItemLedger(){
   itemSyncs[id]=itemSyncs[id].slice(0,30);
   await sbSaveItemSyncs();
   document.getElementById('eiSyncNote').value='';
+  document.getElementById('eiSyncLedger').value='';
+  document.getElementById('eiStock').value=item.stock;
+  document.getElementById('eiStock').dataset.orig=String(item.stock);
   renderItemSync(id);
-  if(typeof renderItemsTable==='function') renderItemsTable();
+  renderAll();
 }
 
 async function deleteItemSync(itemId,syId){
@@ -2277,6 +2471,56 @@ function itemSyncBadge(itemId){
   const since=movesSinceSync(itemId,sy);
   const d=new Date(sy.at).toLocaleDateString('ar-EG',{day:'numeric',month:'short'});
   return `<div style="font-size:10px;color:${since?'var(--amber)':'var(--text3)'}">🔄 ${d}${since?' • '+since+' حركة جديدة':''}</div>`;
+}
+
+// ═══════════════════ تدقيق الأرصدة ═══════════════════
+function expectedStockFromSync(itemId){
+  const sy=(itemSyncs[itemId]||[])[0];
+  if(!sy) return null;
+  const ref=syncRefTime(sy);
+  let exp=Number(sy.stock)||0;
+  movements.filter(m=>m.itemId===itemId&&movTime(m)>ref).forEach(m=>{ exp+=(m.type==='صرف'?-1:1)*(Number(m.qty)||0); });
+  return exp;
+}
+async function openStockAudit(){
+  try{ await silentRefresh(); }catch(_){}
+  const rows=[]; let unsynced=0, drift=0;
+  [...items].sort((a,b)=>(a.page||0)-(b.page||0)).forEach(it=>{
+    const exp=expectedStockFromSync(it.id);
+    if(exp===null){ unsynced++; return; }
+    const diff=(Number(it.stock)||0)-exp;
+    if(diff!==0) drift++;
+    rows.push({it,exp,diff});
+  });
+  document.getElementById('auditSummary').innerHTML=
+    `<span style="color:${drift?'var(--red)':'var(--green)'}">${drift?'⚠️ '+drift+' صنف فيه فرق':'✅ لا توجد فروق'}</span>`+
+    `<span style="color:var(--text3);font-weight:400;margin-right:10px">— ${rows.length} صنف تمت مزامنته، ${unsynced} لم تتم مزامنته بعد (زامنه من بيانات الصنف عشان يدخل في التدقيق)</span>`;
+  document.getElementById('auditTbody').innerHTML=rows.length
+    ? rows.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff)).map(r=>`<tr>
+        <td><strong>${tfEsc(r.it.name)}</strong></td>
+        <td>${(Number(r.it.stock)||0).toLocaleString()}</td>
+        <td>${r.exp.toLocaleString()}</td>
+        <td style="font-weight:700;color:${r.diff?'var(--red)':'var(--green)'}">${r.diff>0?'+':''}${r.diff.toLocaleString()}</td>
+        <td>${r.diff?`<button class="btn btn-icon btn-sm" onclick="fixStockToExpected('${r.it.id}')" title="اضبط رصيد النظام على المتوقع">🔧 تصحيح</button>`:'✅'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;padding:18px;color:var(--text2)">لا توجد أصناف تمت مزامنتها مع الدفتر بعد</td></tr>';
+  document.getElementById('stockLogTbody').innerHTML=stockLog.slice(0,60).map(l=>`<tr>
+      <td style="font-size:11px;color:var(--text2)">${new Date(l.t).toLocaleString('ar-EG',{dateStyle:'short',timeStyle:'short'})}</td>
+      <td>${tfEsc(l.name)}</td><td>${l.before}</td><td><strong>${l.after}</strong></td>
+      <td style="font-size:11px;color:var(--text2)">${tfEsc(l.reason||'')}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="text-align:center;color:var(--text2)">لا يوجد سجل بعد</td></tr>';
+  openModal('stockAuditModal');
+}
+async function fixStockToExpected(itemId){
+  if(document.body.classList.contains('guest-mode')||movBusy) return;
+  const it=items.find(i=>i.id===itemId); const exp=expectedStockFromSync(itemId);
+  if(!it||exp===null) return;
+  if(!confirm('ضبط رصيد "'+it.name+'" من '+it.stock+' إلى '+exp+'؟')) return;
+  movBusy=true;
+  try{ await setStockAbsolute(it,exp,'تصحيح من تدقيق الأرصدة'); renderAll(); }
+  catch(e){ alert('❌ '+(e.message||e)); }
+  finally{ movBusy=false; }
+  openStockAudit();
 }
 
 // ═══════════════════ TALAF (توالف) ═══════════════════
@@ -2913,6 +3157,7 @@ async function loadFromSupabase(){
     try{ await sbLoadOrders(); }catch(e){ console.warn('sbLoadOrders:',e); }
     try{ await sbLoadTalaf(); }catch(e){ console.warn('sbLoadTalaf:',e); }
     try{ await sbLoadItemSyncs(); }catch(e){ console.warn('sbLoadItemSyncs:',e); }
+    try{ await sbLoadStockLog(); }catch(e){ console.warn('sbLoadStockLog:',e); }
     if(!items.length) await seedItems();
     setSBStatus('online');
     const eb=document.getElementById('sbErrorBanner');
@@ -2991,34 +3236,6 @@ function save(){
   localStorage.setItem('rx_mc',movCounter);
 }
 
-async function sbSaveItems(){
-  await sbUpsert('items',items.map(i=>({
-    id:i.id,name:i.name,page:i.page,
-    stock:i.stock,unit:i.unit||'زجاجة',
-    min_stock:i.minStock||50,notes:i.notes||'',
-    trade_name:i.tradeName||''
-  })));
-}
-
-async function sbSaveMovement(mov){
-  await sbUpsert('movements',[{
-    id:mov.id,serial:mov.serial,type:mov.type,
-    item_id:mov.itemId,item_name:mov.itemName,
-    qty:mov.qty,doc_no:mov.docNo,
-    party:mov.party,staff_id:mov.staffId||'',
-    staff_name:mov.staffName,date:mov.date,notes:mov.notes||''
-  }]);
-}
-
-async function sbSaveStaff(){
-  await sbUpsert('staff',staff.map(s=>({
-    id:s.id,name:s.name,role:s.role||'صيدلاني',phone:s.phone||''
-  })));
-}
-
-async function sbDeleteRow(table,id){
-  await sbDelete(table,id);
-}
 
 function seedItems(){
   items=DEFAULTS.map((d,i)=>({
@@ -3595,6 +3812,15 @@ function clearBulkForm(){
 }
 
 async function saveBulkOrder(){
+  if(movBusy) return;
+  movBusy=true; setBtnBusy('saveBulkOrder()',true);
+  try{ await _saveBulkOrderInner(); }
+  catch(e){
+    const el=document.getElementById('movFormAlert');
+    if(el) el.innerHTML=`<div class="alert alert-red">❌ ${e.message||e}</div>`;
+  }finally{ movBusy=false; setBtnBusy('saveBulkOrder()',false); }
+}
+async function _saveBulkOrderInner(){
   const docNo=document.getElementById('boDoc').value.trim();
   const party=document.getElementById('boParty').value.trim();
   const staffId=document.getElementById('boStaff').value;
@@ -3651,10 +3877,13 @@ async function saveBulkOrder(){
   }
 
   const savedNames=[];
+  const failed=[];
   const createdAt=new Date().toISOString();
+  let serialCursor=(await nextSerial())-1;
   for(const line of toSave){
-    movCounter++;
-    const serial=movCounter;
+    serialCursor++;
+    const serial=serialCursor;
+    let savedQty=0;
     for(const p of line.parts){
       const mov={
         id:'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
@@ -3663,13 +3892,19 @@ async function saveBulkOrder(){
         date,notes,expiry:p.expiry,
         archived:false,fiscalYear:getFiscalYear(date),createdAt
       };
-      movements.push(mov);
-      line.item.stock-=p.qty;
-      await sbSaveMovement(mov);
+      try{
+        if(!(await sbSaveMovement(mov))) throw new Error('تعذّر حفظ الحركة');
+        try{ await applyStockDelta(line.item,-p.qty,'صرف إذن '+docNo+' #'+serial,mov.id); }
+        catch(e){ await sbDelete('movements',mov.id); throw e; }
+        movements.push(mov); savedQty+=p.qty;
+      }catch(e){
+        failed.push(`${line.item.name}: ${e.message||e}`);
+      }
     }
-    savedNames.push(`${line.item.name} (${line.parts.reduce((s,p)=>s+p.qty,0).toLocaleString()} ${line.item.unit})`);
+    movCounter=Math.max(movCounter,serial);
+    if(savedQty) savedNames.push(`${line.item.name} (${savedQty.toLocaleString()} ${line.item.unit})`);
   }
-  if(toSave.length){save();await sbSaveItems();renderAll();}
+  if(savedNames.length){save();renderAll();}
 
   const summaryEl=document.getElementById('bulkSummary');
   summaryEl.style.display='block';
@@ -3680,9 +3915,12 @@ async function saveBulkOrder(){
   if(blocked.length){
     html+=`<div class="alert alert-amber" style="margin-top:8px">⚠️ ${blocked.length} صنف موقوف بسبب نقص الرصيد:<br>${blocked.map(b=>`• ${b.item.name}: ${b.reason}`).join('<br>')}</div>`;
   }
+  if(failed.length){
+    html+=`<div class="alert alert-red" style="margin-top:8px">❌ فشل حفظ ${failed.length} حركة (لم يتغير رصيدها):<br>${failed.map(f=>'• '+f).join('<br>')}</div>`;
+  }
   summaryEl.innerHTML=html;
   alertEl.innerHTML='';
-  if(!blocked.length) setTimeout(()=>{clearBulkForm();},2500);
+  if(!blocked.length&&!failed.length) setTimeout(()=>{clearBulkForm();},2500);
   await syncToSheets();
 }
 
@@ -3755,6 +3993,7 @@ function clearMovForm(){
 }
 
 async function saveMovement(){
+  if(movBusy) return; // منع الضغط المزدوج
   const type=document.getElementById('fMovType').value;
   const itemId=document.getElementById('fMovItem').value;
   const qty=parseInt(document.getElementById('fMovQty').value)||0;
@@ -3763,7 +4002,6 @@ async function saveMovement(){
   const staffId=document.getElementById('fMovStaff').value;
   const date=document.getElementById('fMovDate').value;
   let notes=document.getElementById('fMovNotes').value.trim();
-  // لو اختار "أخرى" يضيف التفاصيل في الملاحظات
   const otherWrapEl=document.getElementById('fMovPartyOtherWrap');
   const otherInpEl=document.getElementById('fMovPartyOther');
   if(otherWrapEl&&otherWrapEl.style.display!=='none'&&otherInpEl&&otherInpEl.value.trim()){
@@ -3771,51 +4009,68 @@ async function saveMovement(){
     notes=notes?otherDetail+' — '+notes:otherDetail;
   }
   const alertEl=document.getElementById('movFormAlert');
-
   if(!itemId||!qty||!docNo||!party||!staffId||!date){
     alertEl.innerHTML=`<div class="alert alert-red">⚠️ يرجى تعبئة جميع الحقول المطلوبة</div>`;return;}
   if(qty<=0){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية يجب أن تكون أكبر من صفر</div>`;return;}
   const item=items.find(i=>i.id===itemId);
   const staffMem=staff.find(s=>s.id===staffId);
-  if(type==='صرف'){
-    if(itemNeedsExpiry(itemId)){
-      // فحص رصيد الدفعة المختارة
-      const expirySelEl=document.getElementById('fMovExpirySelect');
-      const selOpt=expirySelEl?expirySelEl.options[expirySelEl.selectedIndex]:null;
-      const batchStock=selOpt&&selOpt.dataset.stock?parseInt(selOpt.dataset.stock):item.stock;
-      if(qty>batchStock){
-        alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية (${qty}) أكبر من رصيد هذه الدفعة (${batchStock.toLocaleString()}). اختر دفعة أخرى أو قلل الكمية.</div>`;
-        movCounter--;
-        return;
+  if(!item||!staffMem){alertEl.innerHTML=`<div class="alert alert-red">⚠️ الصنف أو المسؤول غير موجود</div>`;return;}
+
+  movBusy=true; setBtnBusy('saveMovement()',true);
+  let success=false;
+  try{
+    // رصيد حقيقي من القاعدة قبل أي فحص
+    try{ item.stock=await sbFetchItemStock(item.id); }catch(e){ throw new Error('لا يوجد اتصال بقاعدة البيانات — لم يتم تسجيل الحركة'); }
+
+    if(type==='صرف'){
+      if(itemNeedsExpiry(itemId)){
+        const expirySelEl=document.getElementById('fMovExpirySelect');
+        const selOpt=expirySelEl?expirySelEl.options[expirySelEl.selectedIndex]:null;
+        const batchStock=selOpt&&selOpt.dataset.stock?parseInt(selOpt.dataset.stock):item.stock;
+        if(qty>batchStock){
+          alertEl.innerHTML=`<div class="alert alert-red">⚠️ الكمية (${qty}) أكبر من رصيد هذه الدفعة (${batchStock.toLocaleString()}). اختر دفعة أخرى أو قلل الكمية.</div>`;
+          return;
+        }
+      }
+      if(qty>item.stock){
+        if(!confirm(`الكمية (${qty}) أكبر من الرصيد الحالي (${item.stock}).\nسيصبح الرصيد سالباً. هل تريد المتابعة؟`)) return;
       }
     }
-    if(qty>item.stock){
-      alertEl.innerHTML=`<div class="alert alert-amber">⚠️ الكمية (${qty}) أكبر من الرصيد الحالي (${item.stock}). هل تريد المتابعة؟ سيصبح الرصيد سالباً.</div>`;
+    let expiry='';
+    if(itemNeedsExpiry(itemId)){
+      if(type==='وارد'){
+        expiry=document.getElementById('fMovExpiry').value||'';
+      } else {
+        const exSel=document.getElementById('fMovExpirySelect');
+        const exVal=exSel?exSel.value:'';
+        expiry=exVal==='__nodate__'?'':exVal;
+      }
     }
-  }
-  movCounter++;
-  // تاريخ الصلاحية — بس للأصناف المحددة
-  let expiry='';
-  if(itemNeedsExpiry(itemId)){
-    if(type==='وارد'){
-      expiry=document.getElementById('fMovExpiry').value||'';
-    } else {
-      const exSel=document.getElementById('fMovExpirySelect');
-      const exVal=exSel?exSel.value:'';
-      expiry=exVal==='__nodate__'?'':exVal;
+    const serial=await nextSerial();
+    const mov={id:'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),serial,type,itemId,itemName:item.name,
+      qty,docNo,party,staffId,staffName:staffMem.name,date,notes,expiry,createdAt:new Date().toISOString()};
+
+    // 1) نحفظ الحركة ونتأكد إنها اتحفظت فعلاً
+    if(!(await sbSaveMovement(mov))) throw new Error('تعذّر حفظ الحركة في قاعدة البيانات — لم يتغير الرصيد');
+    // 2) نعدّل الرصيد بشكل ذري — ولو فشل نلغي الحركة عشان ما يحصلش تضارب
+    try{
+      await applyStockDelta(item,type==='صرف'?-qty:qty,'حركة '+type+' #'+serial,mov.id);
+    }catch(e){
+      await sbDelete('movements',mov.id);
+      throw e;
     }
+    movements.push(mov); movCounter=serial;
+    save();
+    renderAll();
+    clearMovForm();
+    alertEl.innerHTML=`<div class="alert alert-blue">✅ تم تسجيل حركة ${type} — رقم #${serial} — الرصيد الآن: ${item.stock.toLocaleString()}</div>`;
+    success=true;
+  }catch(e){
+    alertEl.innerHTML=`<div class="alert alert-red">❌ ${e.message||e}</div>`;
+  }finally{
+    movBusy=false; setBtnBusy('saveMovement()',false);
   }
-  const mov={id:'mov_'+Date.now(),serial:movCounter,type,itemId,itemName:item.name,
-    qty,docNo,party,staffId,staffName:staffMem.name,date,notes,expiry,createdAt:new Date().toISOString()};
-  movements.push(mov);
-  if(type==='صرف') item.stock-=qty; else item.stock+=qty;
-  save();
-  await sbSaveMovement(mov);
-  await sbSaveItems();
-  renderAll();
-  alertEl.innerHTML=`<div class="alert alert-blue">✅ تم تسجيل حركة ${type} — رقم #${movCounter}</div>`;
-  clearMovForm();
-  await syncToSheets();
+  if(success) await syncToSheets();
 }
 
 // ═══════════════════ INVENTORY / JARD ═══════════════════
@@ -4149,7 +4404,7 @@ async function saveNewItem(){
     notes:document.getElementById('niNotes').value.trim(),
     createdAt:new Date().toISOString()});
   save();
-  await sbSaveItems();
+  if(!(await sbUpsertItem(items[items.length-1]))) alert('⚠️ تعذّر حفظ الصنف في قاعدة البيانات — تأكد من الاتصال');
   renderAll();closeModal('addItemModal');
   ['niName','niPage','niNotes'].forEach(id=>document.getElementById(id).value='');
   await syncToSheets();
@@ -4161,6 +4416,8 @@ function openEditItem(id){
   document.getElementById('eiName').value=item.name;
   document.getElementById('eiPage').value=item.page;
   document.getElementById('eiStock').value=item.stock;
+  document.getElementById('eiStock').dataset.orig=String(item.stock);
+  const _lg=document.getElementById('eiSyncLedger'); if(_lg) _lg.value='';
   document.getElementById('eiMin').value=item.minStock;
   document.getElementById('eiUnit').value=item.unit;
   document.getElementById('eiNotes').value=item.notes||'';
@@ -4171,18 +4428,31 @@ function openEditItem(id){
 }
 
 async function updateItem(){
+  if(movBusy) return;
   const id=document.getElementById('eiId').value;
   const item=items.find(i=>i.id===id);if(!item)return;
-  item.name=document.getElementById('eiName').value.trim();
-  item.page=parseInt(document.getElementById('eiPage').value);
-  item.stock=parseInt(document.getElementById('eiStock').value)||0;
-  item.minStock=parseInt(document.getElementById('eiMin').value)||50;
-  item.unit=document.getElementById('eiUnit').value;
-  item.notes=document.getElementById('eiNotes').value.trim();
-  item.tradeName=document.getElementById('eiTradeName').value.trim();
-  save();
-  await sbSaveItems();
-  renderAll();closeModal('editItemModal');
+  const stockEl=document.getElementById('eiStock');
+  const origStock=parseFloat(stockEl.dataset.orig);
+  const newStock=parseInt(stockEl.value)||0;
+  const stockEdited=!isNaN(origStock)&&newStock!==origStock;
+  if(stockEdited && !confirm('هتغيّر رصيد "'+item.name+'" يدوياً من '+origStock+' إلى '+newStock+' بدون حركة. متأكد؟')) return;
+  movBusy=true;
+  try{
+    item.name=document.getElementById('eiName').value.trim();
+    item.page=parseInt(document.getElementById('eiPage').value);
+    item.minStock=parseInt(document.getElementById('eiMin').value)||50;
+    item.unit=document.getElementById('eiUnit').value;
+    item.notes=document.getElementById('eiNotes').value.trim();
+    item.tradeName=document.getElementById('eiTradeName').value.trim();
+    // بيانات الصنف بس — من غير ما نلمس الرصيد
+    const ok=await sbPatch('items',id,{name:item.name,page:item.page,min_stock:item.minStock,unit:item.unit||'زجاجة',notes:item.notes,trade_name:item.tradeName});
+    if(!ok) throw new Error('تعذّر حفظ بيانات الصنف في قاعدة البيانات');
+    if(stockEdited) await setStockAbsolute(item,newStock,'تعديل يدوي من بيانات الصنف');
+    else { try{ item.stock=await sbFetchItemStock(id); }catch(_){} } // نحدّث الرصيد من القاعدة بدل ما نكتب فوقه
+    save();
+    renderAll();closeModal('editItemModal');
+  }catch(e){ alert('❌ '+(e.message||e)); }
+  finally{ movBusy=false; }
   await syncToSheets();
 }
 
@@ -4247,11 +4517,10 @@ async function applyStockFix17to21(){
     return;
   }
   if(!confirm(`سيتم خصم الكميات من ${toFix.length} صنف بدون إضافة أي حركة جديدة. هل أنت متأكد؟`)) return;
-  toFix.forEach(function(r){
-    r.item.stock = r.item.stock - r.fix.qty;
-  });
+  for(const r of toFix){
+    await applyStockDelta(r.item,-r.fix.qty,'تصحيح أذون 17-21');
+  }
   save();
-  await sbSaveItems();
   renderAll();
   await syncToSheets();
   previewStockFix17to21();
@@ -4736,6 +5005,7 @@ function onEmTypeChange(){
 }
 
 async function saveEditMov(){
+  if(movBusy) return;
   const movId=document.getElementById('emId').value;
   const mov=movements.find(m=>m.id===movId);
   if(!mov)return;
@@ -4748,37 +5018,40 @@ async function saveEditMov(){
   const newDate=document.getElementById('emDate').value;
   const newNotes=document.getElementById('emNotes').value.trim();
   if(!newQty||!newDoc||!newParty||!newDate){alert('يرجى تعبئة الحقول المطلوبة');return;}
-  // تراجع عن أثر الحركة القديمة على الرصيد
   const oldItem=items.find(i=>i.id===mov.itemId);
-  if(oldItem){
-    if(mov.type==='صرف') oldItem.stock+=mov.qty;
-    else oldItem.stock-=mov.qty;
-  }
-  // تطبيق الحركة الجديدة
   const newItem=items.find(i=>i.id===newItemId);
   const staffMem=staff.find(s=>s.id===newStaffId);
-  if(newItem){
-    if(newType==='صرف') newItem.stock-=newQty;
-    else newItem.stock+=newQty;
-  }
-  // تحديث بيانات الحركة
-  mov.type=newType;
-  mov.itemId=newItemId;
-  mov.itemName=newItem?newItem.name:mov.itemName;
-  mov.qty=newQty;
-  mov.docNo=newDoc;
-  mov.party=newParty;
-  mov.staffId=newStaffId;
-  mov.staffName=staffMem?staffMem.name:mov.staffName;
-  mov.date=newDate;
-  mov.notes=newNotes;
-  save();
-  await sbSaveMovement(mov);
-  await sbSaveItems();
-  renderAll();
-  closeModal('editMovModal');
-  alert('✅ تم تعديل الحركة بنجاح');
-  await syncToSheets();
+  const old={...mov};
+  const effOld=(old.type==='صرف'?-1:1)*old.qty;
+  const effNew=(newType==='صرف'?-1:1)*newQty;
+  const upd={...old,type:newType,itemId:newItemId,itemName:newItem?newItem.name:old.itemName,qty:newQty,
+    docNo:newDoc,party:newParty,staffId:newStaffId,staffName:staffMem?staffMem.name:old.staffName,date:newDate,notes:newNotes};
+  movBusy=true;
+  let ok=false;
+  try{
+    if(!(await sbSaveMovement(upd))) throw new Error('تعذّر حفظ التعديل في قاعدة البيانات');
+    const applied=[]; // [الصنف, delta التراجع]
+    try{
+      const why='تعديل حركة #'+old.serial;
+      if(old.itemId===newItemId){
+        const d=effNew-effOld;
+        if(d!==0&&newItem){ await applyStockDelta(newItem,d,why,old.id); applied.push([newItem,-d]); }
+      }else{
+        if(oldItem){ await applyStockDelta(oldItem,-effOld,why,old.id); applied.push([oldItem,effOld]); }
+        if(newItem){ await applyStockDelta(newItem,effNew,why,old.id); applied.push([newItem,-effNew]); }
+      }
+    }catch(e){
+      for(const [it,d] of applied.reverse()){ try{ await applyStockDelta(it,d,'تراجع تلقائي عن تعديل فاشل',old.id); }catch(_){} }
+      await sbSaveMovement(old);
+      throw e;
+    }
+    Object.assign(mov,upd);
+    save(); renderAll(); closeModal('editMovModal');
+    alert('✅ تم تعديل الحركة بنجاح');
+    ok=true;
+  }catch(e){ alert('❌ لم يتم التعديل ولم يتغير الرصيد: '+(e.message||e)); }
+  finally{ movBusy=false; }
+  if(ok) await syncToSheets();
 }
 
 function confirmDeleteMov(){
@@ -4788,22 +5061,25 @@ function confirmDeleteMov(){
 }
 
 async function deleteMov(movId){
+  if(movBusy) return;
   const mov=movements.find(m=>m.id===movId);
   if(!mov)return;
   if(!confirm('حذف الحركة #'+mov.serial+' ('+mov.type+' '+mov.qty+' '+mov.itemName+')؟'))return;
-  // تراجع عن أثر الحركة على الرصيد
-  const item=items.find(i=>i.id===mov.itemId);
-  if(item){
-    if(mov.type==='صرف') item.stock+=mov.qty;
-    else item.stock-=mov.qty;
-  }
-  movements=movements.filter(m=>m.id!==movId);
-  save();
-  await sbDeleteRow('movements',movId);
-  await sbSaveItems();
-  renderAll();
-  await sleep(2500);
-  await syncToSheets();
+  movBusy=true;
+  let ok=false;
+  try{
+    if(!(await sbDelete('movements',movId))) throw new Error('تعذّر حذف الحركة من قاعدة البيانات');
+    const item=items.find(i=>i.id===mov.itemId);
+    if(item){
+      try{ await applyStockDelta(item,(mov.type==='صرف'?1:-1)*mov.qty,'حذف حركة #'+mov.serial,mov.id); }
+      catch(e){ await sbSaveMovement(mov); throw e; }
+    }
+    movements=movements.filter(m=>m.id!==movId);
+    save(); renderAll();
+    ok=true;
+  }catch(e){ alert('❌ لم يتم الحذف ولم يتغير الرصيد: '+(e.message||e)); }
+  finally{ movBusy=false; }
+  if(ok){ await sleep(2500); await syncToSheets(); }
 }
 
 
@@ -6361,41 +6637,6 @@ function doLogout(){
   var r=sessionStorage.getItem('rx_role');
   if(r){ RX_ROLE=r; closeAuth(); }
   // else: شاشة الدخول ستظهر تلقائياً
-})();
-</script>
-
-<script>
-// ═══════════════ مزامنة تلقائية بين الموقع والبرنامج (Supabase) ═══════════════
-(function(){
-  var SYNC_MS = 20000;      // كل 20 ثانية
-  var IDLE_MS = 4000;       // لا تزامن لو المستخدم لسه لاعب في الشاشة من أقل من 4 ثواني
-  var lastAction = 0, busy = false;
-  ['click','keydown','input','touchstart'].forEach(function(ev){
-    document.addEventListener(ev, function(){ lastAction = Date.now(); }, true);
-  });
-  function userIsBusy(){
-    var a = document.activeElement;
-    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
-    if (document.querySelector('.overlay.open')) return true;
-    return (Date.now() - lastAction) < IDLE_MS;
-  }
-  function loggedIn(){
-    var o = document.getElementById('authOverlay');
-    return typeof RX_ROLE !== 'undefined' && RX_ROLE && o && o.style.display === 'none';
-  }
-  async function autoSync(){
-    if (busy || document.hidden || !navigator.onLine) return;
-    if (!loggedIn() || typeof loadFromSupabase !== 'function') return;
-    if (document.getElementById('sbErrorBanner')) return;  // فيه محاولة إعادة اتصال شغالة
-    if (userIsBusy()) return;
-    busy = true;
-    try { await loadFromSupabase(); } catch(e) { console.warn('autoSync:', e); }
-    busy = false;
-  }
-  setInterval(autoSync, SYNC_MS);
-  window.addEventListener('focus', function(){ setTimeout(autoSync, 300); });
-  document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(autoSync, 300); });
-  window.addEventListener('online', function(){ setTimeout(autoSync, 500); });
 })();
 </script>
 </body>
